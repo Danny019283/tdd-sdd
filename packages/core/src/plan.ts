@@ -40,3 +40,13 @@ export function parsePlan(markdown: string): PlanCheck[] {
   }
   return checks;
 }
+
+export function markCheckDone(markdown: string, id: number): string {
+  const lines = markdown.split("\n");
+  const index = lines.findIndex((line) => CHECK_LINE.exec(line)?.[2] === String(id));
+  if (index === -1) throw new Error(`No existe el check ${id} en el plan`);
+  const line = lines[index]!;
+  if (CHECK_LINE.exec(line)![1] === "x") throw new Error(`El check ${id} ya está completado`);
+  lines[index] = line.replace("- [ ]", "- [x]");
+  return lines.join("\n");
+}
