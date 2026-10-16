@@ -45,4 +45,16 @@ describe("evaluate edit: production code needs a red test", () => {
       expect(edit(phase, TEST)).toEqual({ allow: true });
     });
   });
+
+  describe("tests are frozen once they pass, until the next check", () => {
+    it.each<CyclePhase>(["green", "review"])("denies editing a test file in %s", (phase) => {
+      const decision = edit(phase, TEST);
+      expect(decision.allow).toBe(false);
+      if (!decision.allow) expect(decision.rule).toBe("TESTS_FROZEN_AFTER_GREEN");
+    });
+
+    it.each<CyclePhase>(["green", "review"])("keeps denying production edits in %s", (phase) => {
+      expect(edit(phase, PROD).allow).toBe(false);
+    });
+  });
 });
