@@ -1,0 +1,17 @@
+{
+  "name": "@tdd-sdd/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@tdd-sdd/core": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}
