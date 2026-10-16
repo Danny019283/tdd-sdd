@@ -19,6 +19,13 @@ export function isTestFile(file: string): boolean {
 const PRODUCTION_EDIT_PHASES: ReadonlySet<CyclePhase> = new Set(["red", "refactor"]);
 
 export function evaluate(context: RuleContext, action: Action): Decision {
+  if (isTestFile(action.file) && context.phase === "refactor") {
+    return {
+      allow: false,
+      rule: "TESTS_FROZEN_IN_REFACTOR",
+      reason: `No se puede editar ${action.file} durante el refactor: los tests son la red de seguridad y deben quedar intactos.`,
+    };
+  }
   if (!isTestFile(action.file) && !PRODUCTION_EDIT_PHASES.has(context.phase)) {
     return {
       allow: false,

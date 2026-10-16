@@ -30,4 +30,19 @@ describe("evaluate edit: production code needs a red test", () => {
     expect(decision.allow).toBe(false);
     if (!decision.allow) expect(decision.reason).toMatch(/test en rojo/);
   });
+
+  describe("tests are frozen during refactor", () => {
+    it("denies editing a test file in refactor", () => {
+      const decision = edit("refactor", TEST);
+      expect(decision.allow).toBe(false);
+      if (!decision.allow) {
+        expect(decision.rule).toBe("TESTS_FROZEN_IN_REFACTOR");
+        expect(decision.reason).toMatch(/refactor/);
+      }
+    });
+
+    it.each<CyclePhase>(["plan_approved", "red"])("still allows editing a test in %s", (phase) => {
+      expect(edit(phase, TEST)).toEqual({ allow: true });
+    });
+  });
 });
