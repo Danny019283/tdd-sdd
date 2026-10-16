@@ -4,9 +4,11 @@ export interface RuleContext {
   phase: CyclePhase;
   /** Archivos declarados por el check actual; si no hay check activo, no se define. */
   allowedFiles?: readonly string[];
+  /** El humano aprobó un check y su commit aún no se ha hecho. */
+  pendingCommit?: boolean;
 }
 
-export type Action = { type: "edit"; file: string };
+export type Action = { type: "edit"; file: string } | { type: "commit" };
 
 export type Decision =
   | { allow: true }
@@ -27,6 +29,20 @@ function normalizePath(file: string): string {
 }
 
 export function evaluate(context: RuleContext, action: Action): Decision {
+  if (action.type === "commit") return evaluateCommit(context);
+  return evaluateEdit(context, action);
+}
+
+function evaluateCommit(context: RuleContext): Decision {
+  if (context.pendingCommit) return { allow: true };
+  return {
+    allow: false,
+    rule: "COMMIT_REQUIRES_APPROVAL",
+    reason: "No se puede hacer commit: solo se commitea un check aprobado por el humano y aún no hay ninguna aprobación pendiente.",
+  };
+}
+
+function evaluateEdit(context: RuleContext, action: { type: "edit"; file: string }): Decision {
   if (context.allowedFiles !== undefined) {
     const allowed = context.allowedFiles.map(normalizePath);
     if (!allowed.includes(normalizePath(action.file))) {
