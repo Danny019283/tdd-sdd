@@ -10,7 +10,7 @@ export const SPEC_SECTIONS = [
   "Requisitos no funcionales",
 ] as const;
 
-export type SpecErrorCode = "MISSING_SECTION" | "EMPTY_SECTION" | "PLACEHOLDER";
+export type SpecErrorCode = "MISSING_SECTION" | "EMPTY_SECTION" | "PLACEHOLDER" | "MULTIPLE_TRIGGERS";
 
 const PLACEHOLDERS = new Set(["tbd", "todo", "pendiente", "por definir", "n/a"]);
 
@@ -36,6 +36,10 @@ function parseSections(markdown: string): Map<string, string> {
   return sections;
 }
 
+function countListItems(body: string): number {
+  return body.split("\n").filter((line) => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line)).length;
+}
+
 export function validateSpec(markdown: string): SpecValidation {
   const sections = parseSections(markdown);
   const errors: SpecError[] = [];
@@ -46,5 +50,8 @@ export function validateSpec(markdown: string): SpecValidation {
     else if (PLACEHOLDERS.has(body.toLowerCase().replace(/[.\s]+$/, "")))
       errors.push({ section: title, code: "PLACEHOLDER" });
   }
+  const trigger = sections.get("Disparador");
+  if (trigger && errors.every((e) => e.section !== "Disparador") && countListItems(trigger) > 1)
+    errors.push({ section: "Disparador", code: "MULTIPLE_TRIGGERS" });
   return { ok: errors.length === 0, errors };
 }

@@ -43,4 +43,20 @@ describe("validateSpec", () => {
       );
     },
   );
+
+  it("accepts a Disparador that is a single event", () => {
+    const result = validateSpec(specWith({ Disparador: "El actor envía el formulario de login." }));
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    ["a list of several events", "- El actor envía el formulario\n- Llega el día 1 de cada mes"],
+    ["numbered steps", "1. El actor abre la página\n2. El actor envía el formulario"],
+  ])("rejects a Disparador written as %s", (_label, body) => {
+    const result = validateSpec(specWith({ Disparador: body }));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ section: "Disparador", code: "MULTIPLE_TRIGGERS" }),
+    );
+  });
 });
