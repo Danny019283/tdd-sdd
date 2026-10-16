@@ -10,7 +10,9 @@ export const SPEC_SECTIONS = [
   "Requisitos no funcionales",
 ] as const;
 
-export type SpecErrorCode = "MISSING_SECTION" | "EMPTY_SECTION";
+export type SpecErrorCode = "MISSING_SECTION" | "EMPTY_SECTION" | "PLACEHOLDER";
+
+const PLACEHOLDERS = new Set(["tbd", "todo", "pendiente", "por definir", "n/a"]);
 
 export interface SpecError {
   section: string;
@@ -41,6 +43,8 @@ export function validateSpec(markdown: string): SpecValidation {
     const body = sections.get(title);
     if (body === undefined) errors.push({ section: title, code: "MISSING_SECTION" });
     else if (body === "") errors.push({ section: title, code: "EMPTY_SECTION" });
+    else if (PLACEHOLDERS.has(body.toLowerCase().replace(/[.\s]+$/, "")))
+      errors.push({ section: title, code: "PLACEHOLDER" });
   }
   return { ok: errors.length === 0, errors };
 }

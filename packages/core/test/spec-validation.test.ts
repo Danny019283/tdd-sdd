@@ -32,4 +32,15 @@ describe("validateSpec", () => {
       expect.objectContaining({ section: "Disparador", code: "EMPTY_SECTION" }),
     );
   });
+
+  it.each(["TBD", "pendiente", "TODO", "por definir"])(
+    "rejects a section containing only the placeholder %s",
+    (placeholder) => {
+      const result = validateSpec(specWith({ "Reglas de negocio": placeholder }));
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual(
+        expect.objectContaining({ section: "Reglas de negocio", code: "PLACEHOLDER" }),
+      );
+    },
+  );
 });
