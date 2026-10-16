@@ -27,7 +27,7 @@ La IA no puede aprobar nada: `/approve`, `/override` y `/refactor` solo los proc
 | `PRODUCTION_REQUIRES_RED_TEST` | Editar código de producción sin test en rojo |
 | `OUT_OF_SCOPE` | Editar archivos fuera de la lista del check actual |
 | `TESTS_FROZEN_AFTER_GREEN` / `TESTS_FROZEN_IN_REFACTOR` | Tocar tests tras verde o durante refactor |
-| `SPEC_FROZEN` / `PLAN_FROZEN` / `HARNESS_FILE_PROTECTED` | Editar spec/plan aprobados o el estado del harness |
+| `SPEC_FROZEN` / `PLAN_FROZEN` / `CONFIG_FROZEN` / `HARNESS_FILE_PROTECTED` | Editar spec/plan/config aprobados o el estado del harness |
 | `COMMIT_REQUIRES_APPROVAL` | Commit sin check aprobado por el humano |
 | `STOP_REQUIRES_REVIEW` | Terminar en verde sin la parada de revisión |
 | `PUSH_REQUIRES_COMPLETE_PLAN` / `PUSH_REQUIRES_FINAL_APPROVAL` | Push anticipado |
@@ -51,6 +51,7 @@ pnpm --filter @tdd-sdd/cli build   # regenera packages/adapter-claude/bin/tdd-sd
 
 ## Limitaciones conocidas (MVP)
 
+- El comando de tests viene de `.tdd-sdd/config.json` y la IA solo puede escribirlo mientras la spec es borrador; `/approve plan` lo muestra para que el humano lo vea. El rojo se registra por código de salida: un fallo de configuración se vería como rojo, así que la skill obliga a leer la salida y a confirmarlo en la parada de revisión.
 - Desde `Bash` se detectan redirecciones (`>`, `>>`), `tee`, `sed -i`, `cp`, `mv` y `rm` hacia archivos del proyecto; una escritura indirecta (un script, `python -c`, `git checkout`) no se detecta. Una redirección de salida a un archivo del proyecto también se evalúa como edición.
 - Rutas del scope guard por coincidencia exacta (sin globs).
 - La API del plugin de opencode está escrita contra la documentación pública y no se ha probado dentro de opencode.

@@ -26,4 +26,10 @@ describe("harness files are protected", () => {
     expect(edit("plan_approved", PLAN)).toMatchObject({ allow: false, rule: "PLAN_FROZEN" });
     expect(edit("green", PLAN)).toMatchObject({ allow: false, rule: "PLAN_FROZEN" });
   });
+
+  it("lets the AI write the test command only while the spec is a draft", () => {
+    expect(edit("spec_draft", ".tdd-sdd/config.json")).toEqual({ allow: true });
+    expect(edit("spec_approved", ".tdd-sdd/config.json")).toMatchObject({ allow: false, rule: "CONFIG_FROZEN" });
+    expect(edit("red", ".tdd-sdd/config.json")).toMatchObject({ allow: false, rule: "CONFIG_FROZEN" });
+  });
 });

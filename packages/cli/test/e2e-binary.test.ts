@@ -26,6 +26,9 @@ function hook(cwd: string, input: object) {
 
 const edit = (file: string) => ({ hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: file } });
 const bash = (command: string) => ({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } });
+function setTestCommand(root: string, testCommand: string) {
+  write(root, ".tdd-sdd/config.json", JSON.stringify({ testCommand }));
+}
 const prompt = (prompt: string) => ({ hook_event_name: "UserPromptSubmit", prompt });
 
 describe("real binary, real processes", () => {
@@ -40,16 +43,22 @@ describe("real binary, real processes", () => {
     write(root, `${UC}/plan.md`, PLAN.split("- [ ] 2.")[0]!);
     expect(hook(root, prompt("/approve plan")).out).toMatch(/Plan aprobado/);
 
+    // the test command comes only from config.json; there is no way to pass one
+    expect(cli(root, ["test", "--", "true"]).err).toMatch(/Falta el comando|comando de tests/);
+    setTestCommand(root, "node -e \"process.exit(0)\"");
+
     // a passing test with no implementation does not count as red
-    const notRed = cli(root, ["test", "--", "node -e \"process.exit(0)\""]);
+    const notRed = cli(root, ["test"]);
     expect(notRed.code).toBe(1);
     expect(JSON.parse(read(root, ".tdd-sdd/state.json")).phase).toBe("plan_approved");
 
-    expect(cli(root, ["test", "--", "node -e \"process.exit(1)\""]).code).toBe(1);
+    setTestCommand(root, "node -e \"process.exit(1)\"");
+    expect(cli(root, ["test"]).code).toBe(1);
     expect(JSON.parse(read(root, ".tdd-sdd/state.json")).phase).toBe("red");
     expect(hook(root, edit("src/login.ts")).code).toBe(0);
 
-    expect(cli(root, ["test", "--", "node -e \"process.exit(0)\""]).code).toBe(0);
+    setTestCommand(root, "node -e \"process.exit(0)\"");
+    expect(cli(root, ["test"]).code).toBe(0);
     expect(hook(root, { hook_event_name: "Stop" }).code).toBe(2);
     expect(cli(root, ["review"]).code).toBe(0);
     expect(hook(root, { hook_event_name: "Stop" }).code).toBe(0);

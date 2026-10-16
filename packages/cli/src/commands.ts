@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   buildContext,
   markCheckDone,
@@ -18,6 +19,7 @@ import {
   specPath,
   statePath,
   writeText,
+  HARNESS_DIR,
 } from "./store.js";
 
 export interface Result {
@@ -107,7 +109,16 @@ function approvePlan(root: string, state: ProjectState): Result {
     return fail(`Cada check debe declarar 'cubre' y 'archivos'. Incompletos: ${incomplete.map((c) => c.id).join(", ")}.`);
   }
   step(root, state, "approve_plan");
-  return ok(`Plan aprobado (${checks.length} checks). Empieza por escribir el test en rojo del check 1.`);
+  const config = readOptional(join(root, HARNESS_DIR, "config.json"));
+  let testCommand = "NO DEFINIDO";
+  try {
+    testCommand = (JSON.parse(config ?? "{}") as { testCommand?: string }).testCommand ?? testCommand;
+  } catch {
+    // config ilegible: se muestra como no definido
+  }
+  return ok(
+    `Plan aprobado (${checks.length} checks). Comando de tests: ${testCommand}. Empieza por escribir el test en rojo del check 1.`,
+  );
 }
 
 function approveCheck(root: string, state: ProjectState): Result {
@@ -153,7 +164,7 @@ export function recordTestRun(root: string, exitCode: number): Result {
     case "plan_approved":
       if (passed) return fail("Los tests pasan sin implementación: el test nuevo no está demostrando nada. Escribe un test que falle.");
       step(root, state, "tests_red");
-      return ok("ROJO confirmado. Implementa lo mínimo para ponerlo en verde.");
+      return ok("ROJO registrado. Confirma que falla por comportamiento ausente y no por un error de configuración o de ejecución; luego implementa lo mínimo.");
     case "red":
       if (!passed) return ok("Sigue en rojo.");
       step(root, state, "tests_green");

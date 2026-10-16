@@ -10,23 +10,21 @@ function print(result: Result): never {
   process.exit(result.ok ? 0 : 1);
 }
 
-function testCommand(root: string, rest: string[]): string {
-  const dash = rest.indexOf("--");
-  if (dash !== -1 && rest[dash + 1]) return rest.slice(dash + 1).join(" ");
+function testCommand(root: string): string {
   try {
     const config = JSON.parse(readFileSync(join(root, HARNESS_DIR, "config.json"), "utf8"));
-    if (typeof config.testCommand === "string") return config.testCommand;
+    if (typeof config.testCommand === "string" && config.testCommand.trim() !== "") return config.testCommand;
   } catch {
     // sin config: se informa abajo
   }
   process.stderr.write(
-    `Falta el comando de tests. Define "testCommand" en ${HARNESS_DIR}/config.json o usa: tdd-sdd test -- <comando>\n`,
+    `Falta el comando de tests: define "testCommand" en ${HARNESS_DIR}/config.json (solo editable antes de aprobar la spec).\n`,
   );
   process.exit(1);
 }
 
-function runTests(root: string, rest: string[]): number {
-  const result = spawnSync(testCommand(root, rest), { cwd: root, shell: true, stdio: "inherit" });
+function runTests(root: string): number {
+  const result = spawnSync(testCommand(root), { cwd: root, shell: true, stdio: "inherit" });
   return result.status ?? 1;
 }
 
@@ -56,7 +54,7 @@ switch (command) {
     process.stdout.write(status(root) + "\n");
     break;
   case "test": {
-    const code = runTests(root, rest);
+    const code = runTests(root);
     const result = recordTestRun(root, code);
     process.stdout.write(`\n[tdd-sdd] ${result.message}\n`);
     process.exit(code === 0 && !result.ok ? 1 : code);
@@ -65,11 +63,11 @@ switch (command) {
     print(requestReview(root));
     break;
   case "refactor-done": {
-    const code = runTests(root, rest);
+    const code = runTests(root);
     print(finishRefactor(root, code));
     break;
   }
   default:
-    process.stderr.write("Uso: tdd-sdd init <id> | test [-- cmd] | review | refactor-done [-- cmd] | status | hook\n");
+    process.stderr.write("Uso: tdd-sdd init <id> | test | review | refactor-done | status | hook\n");
     process.exit(1);
 }

@@ -92,6 +92,13 @@ function evaluateHarnessFile(context: RuleContext, file: string): Decision | und
       reason: `${file} lo gestiona el harness; no se edita a mano.`,
     };
   }
+  if (path === ".tdd-sdd/config.json" && context.phase !== "spec_draft") {
+    return {
+      allow: false,
+      rule: "CONFIG_FROZEN",
+      reason: `${file} define el comando de tests y queda congelado al aprobar la spec. Si es incorrecto, díselo al humano.`,
+    };
+  }
   if (name === "spec.md" && context.phase !== "spec_draft") {
     return {
       allow: false,

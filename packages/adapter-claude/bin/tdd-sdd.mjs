@@ -3,10 +3,11 @@
 // src/main.ts
 import { readFileSync as readFileSync2 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // src/commands.ts
 import { existsSync as existsSync2 } from "node:fs";
+import { join as join2 } from "node:path";
 
 // ../core/src/spec.ts
 var SPEC_SECTIONS = [
@@ -170,6 +171,13 @@ function evaluateHarnessFile(context, file) {
       allow: false,
       rule: "HARNESS_FILE_PROTECTED",
       reason: `${file} lo gestiona el harness; no se edita a mano.`
+    };
+  }
+  if (path === ".tdd-sdd/config.json" && context.phase !== "spec_draft") {
+    return {
+      allow: false,
+      rule: "CONFIG_FROZEN",
+      reason: `${file} define el comando de tests y queda congelado al aprobar la spec. Si es incorrecto, d\xEDselo al humano.`
     };
   }
   if (name === "spec.md" && context.phase !== "spec_draft") {
@@ -418,7 +426,15 @@ function approvePlan(root2, state) {
     return fail(`Cada check debe declarar 'cubre' y 'archivos'. Incompletos: ${incomplete.map((c) => c.id).join(", ")}.`);
   }
   step(root2, state, "approve_plan");
-  return ok(`Plan aprobado (${checks.length} checks). Empieza por escribir el test en rojo del check 1.`);
+  const config = readOptional(join2(root2, HARNESS_DIR, "config.json"));
+  let testCommand2 = "NO DEFINIDO";
+  try {
+    testCommand2 = JSON.parse(config ?? "{}").testCommand ?? testCommand2;
+  } catch {
+  }
+  return ok(
+    `Plan aprobado (${checks.length} checks). Comando de tests: ${testCommand2}. Empieza por escribir el test en rojo del check 1.`
+  );
 }
 function approveCheck(root2, state) {
   if (state.phase !== "review") return fail(`No hay un check en revisi\xF3n (fase ${state.phase}).`);
@@ -458,7 +474,7 @@ function recordTestRun(root2, exitCode) {
     case "plan_approved":
       if (passed) return fail("Los tests pasan sin implementaci\xF3n: el test nuevo no est\xE1 demostrando nada. Escribe un test que falle.");
       step(root2, state, "tests_red");
-      return ok("ROJO confirmado. Implementa lo m\xEDnimo para ponerlo en verde.");
+      return ok("ROJO registrado. Confirma que falla por comportamiento ausente y no por un error de configuraci\xF3n o de ejecuci\xF3n; luego implementa lo m\xEDnimo.");
     case "red":
       if (!passed) return ok("Sigue en rojo.");
       step(root2, state, "tests_green");
@@ -689,22 +705,20 @@ function print(result) {
   (result.ok ? process.stdout : process.stderr).write(result.message + "\n");
   process.exit(result.ok ? 0 : 1);
 }
-function testCommand(root2, rest2) {
-  const dash = rest2.indexOf("--");
-  if (dash !== -1 && rest2[dash + 1]) return rest2.slice(dash + 1).join(" ");
+function testCommand(root2) {
   try {
-    const config = JSON.parse(readFileSync2(join2(root2, HARNESS_DIR, "config.json"), "utf8"));
-    if (typeof config.testCommand === "string") return config.testCommand;
+    const config = JSON.parse(readFileSync2(join3(root2, HARNESS_DIR, "config.json"), "utf8"));
+    if (typeof config.testCommand === "string" && config.testCommand.trim() !== "") return config.testCommand;
   } catch {
   }
   process.stderr.write(
-    `Falta el comando de tests. Define "testCommand" en ${HARNESS_DIR}/config.json o usa: tdd-sdd test -- <comando>
+    `Falta el comando de tests: define "testCommand" en ${HARNESS_DIR}/config.json (solo editable antes de aprobar la spec).
 `
   );
   process.exit(1);
 }
-function runTests(root2, rest2) {
-  const result = spawnSync(testCommand(root2, rest2), { cwd: root2, shell: true, stdio: "inherit" });
+function runTests(root2) {
+  const result = spawnSync(testCommand(root2), { cwd: root2, shell: true, stdio: "inherit" });
   return result.status ?? 1;
 }
 var [command = "", ...rest] = process.argv.slice(2);
@@ -729,7 +743,7 @@ switch (command) {
     process.stdout.write(status(root) + "\n");
     break;
   case "test": {
-    const code = runTests(root, rest);
+    const code = runTests(root);
     const result = recordTestRun(root, code);
     process.stdout.write(`
 [tdd-sdd] ${result.message}
@@ -740,11 +754,11 @@ switch (command) {
     print(requestReview(root));
     break;
   case "refactor-done": {
-    const code = runTests(root, rest);
+    const code = runTests(root);
     print(finishRefactor(root, code));
     break;
   }
   default:
-    process.stderr.write("Uso: tdd-sdd init <id> | test [-- cmd] | review | refactor-done [-- cmd] | status | hook\n");
+    process.stderr.write("Uso: tdd-sdd init <id> | test | review | refactor-done | status | hook\n");
     process.exit(1);
 }
