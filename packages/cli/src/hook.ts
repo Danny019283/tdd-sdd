@@ -1,6 +1,7 @@
 import { isAbsolute, relative } from "node:path";
 import { buildContext, evaluate, type Action, type Decision } from "@tdd-sdd/core";
 import { humanCommand, status } from "./commands.js";
+import { extractWriteTargets } from "./shell.js";
 import { loadState, planPath, readOptional, saveState } from "./store.js";
 
 export interface HookInput {
@@ -27,28 +28,37 @@ function deny(rule: string, reason: string): HookResult {
   return { exitCode: 2, stdout: "", stderr: `[tdd-sdd] ${reason} (regla: ${rule})` };
 }
 
-function actionFor(input: HookInput, root: string): Action | HookResult | undefined {
+function projectRelative(file: string, root: string): string | undefined {
+  const rel = isAbsolute(file) ? relative(root, file) : file;
+  return rel.startsWith("..") || isAbsolute(rel) ? undefined : rel;
+}
+
+function actionsFor(input: HookInput, root: string): Action[] | HookResult {
   const tool = (input.tool_name ?? "").toLowerCase();
   const args = input.tool_input ?? {};
   if (EDIT_TOOLS.has(tool)) {
     const raw = args.file_path ?? args.filePath ?? args.notebook_path ?? args.path;
-    if (!raw) return undefined;
-    const file = isAbsolute(raw) ? relative(root, raw) : raw;
-    return { type: "edit", file };
+    if (!raw) return [];
+    const file = projectRelative(raw, root);
+    return file === undefined ? [] : [{ type: "edit", file }];
   }
-  if (tool === "bash") {
-    const command = args.command ?? "";
-    if (HARNESS_WRITE.test(command) && WRITE_OPERATOR.test(command)) {
-      return deny("HARNESS_FILE_PROTECTED", "Los archivos de estado del harness no se modifican desde la shell.");
-    }
-    if (/\bgit\b[^|;&]*\bcommit\b/.test(command)) return { type: "commit" };
-    if (/\bgit\b[^|;&]*\bpush\b/.test(command)) return { type: "push" };
+  if (tool !== "bash") return [];
+  const command = args.command ?? "";
+  if (HARNESS_WRITE.test(command) && WRITE_OPERATOR.test(command)) {
+    return deny("HARNESS_FILE_PROTECTED", "Los archivos de estado del harness no se modifican desde la shell.");
   }
-  return undefined;
+  const actions: Action[] = [];
+  for (const target of extractWriteTargets(command)) {
+    const file = projectRelative(target, root);
+    if (file !== undefined) actions.push({ type: "edit", file });
+  }
+  if (/\bgit\b[^|;&]*\bcommit\b/.test(command)) actions.push({ type: "commit" });
+  if (/\bgit\b[^|;&]*\bpush\b/.test(command)) actions.push({ type: "push" });
+  return actions;
 }
 
-function isHookResult(value: Action | HookResult | undefined): value is HookResult {
-  return value !== undefined && "exitCode" in value;
+function isHookResult(value: Action[] | HookResult): value is HookResult {
+  return !Array.isArray(value);
 }
 
 function decide(input: HookInput, root: string, action: Action): HookResult {
@@ -90,10 +100,13 @@ export function handleHook(input: HookInput, root: string, options: { cliPath?: 
   if (!loadState(root)) return ALLOW;
   switch (input.hook_event_name) {
     case "PreToolUse": {
-      const action = actionFor(input, root);
-      if (action === undefined) return ALLOW;
-      if (isHookResult(action)) return action;
-      return decide(input, root, action);
+      const actions = actionsFor(input, root);
+      if (isHookResult(actions)) return actions;
+      for (const action of actions) {
+        const result = decide(input, root, action);
+        if (result.exitCode === 2) return result;
+      }
+      return ALLOW;
     }
     case "Stop":
       if (input.stop_hook_active) return ALLOW;

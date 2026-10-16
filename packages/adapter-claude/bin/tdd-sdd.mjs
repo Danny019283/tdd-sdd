@@ -503,6 +503,98 @@ function status(root2) {
 
 // src/hook.ts
 import { isAbsolute, relative } from "node:path";
+
+// src/shell.ts
+var IGNORED_TARGETS = /* @__PURE__ */ new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "-"]);
+function tokenize(command2) {
+  const tokens = [];
+  let word = "";
+  let inWord = false;
+  const flush = () => {
+    if (inWord) tokens.push({ kind: "word", value: word });
+    word = "";
+    inWord = false;
+  };
+  for (let i = 0; i < command2.length; i++) {
+    const c = command2[i];
+    if (c === "'" || c === '"') {
+      const end = command2.indexOf(c, i + 1);
+      const stop = end === -1 ? command2.length : end;
+      word += command2.slice(i + 1, stop);
+      inWord = true;
+      i = stop;
+    } else if (/\s/.test(c)) {
+      flush();
+    } else if (c === ">") {
+      if (inWord && /^\d+$/.test(word)) {
+        word = "";
+        inWord = false;
+      } else flush();
+      if (command2[i + 1] === "&") {
+        i += 1;
+        while (/[\d-]/.test(command2[i + 1] ?? "")) i += 1;
+        continue;
+      }
+      const op = command2[i + 1] === ">" ? ">>" : ">";
+      if (op === ">>") i += 1;
+      tokens.push({ kind: "op", value: op });
+    } else if (c === "&" || c === "|" || c === ";") {
+      flush();
+      if ((c === "&" || c === "|") && command2[i + 1] === c) i += 1;
+      tokens.push({ kind: "op", value: ";" });
+    } else {
+      word += c;
+      inWord = true;
+    }
+  }
+  flush();
+  return tokens;
+}
+function splitCommands(tokens) {
+  const commands = [[]];
+  for (const token of tokens) {
+    if (token.kind === "op" && token.value === ";") commands.push([]);
+    else commands[commands.length - 1].push(token);
+  }
+  return commands.filter((c) => c.length > 0);
+}
+var isFlag = (word) => word.startsWith("-");
+function extractWriteTargets(command2) {
+  const targets = [];
+  for (const tokens of splitCommands(tokenize(command2))) {
+    const words = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (t.kind === "op") {
+        const next = tokens[i + 1];
+        if (next?.kind === "word") targets.push(next.value);
+        i += 1;
+      } else words.push(t.value);
+    }
+    const [name = "", ...args] = words;
+    const positional = args.filter((a) => !isFlag(a));
+    switch (name) {
+      case "tee":
+        targets.push(...positional);
+        break;
+      case "rm":
+        targets.push(...positional);
+        break;
+      case "cp":
+      case "mv":
+        if (positional.length >= 2) targets.push(positional[positional.length - 1]);
+        break;
+      case "sed":
+        if (args.some((a) => /^-[a-zA-Z]*i/.test(a) || a === "--in-place") && positional.length >= 2) {
+          targets.push(positional[positional.length - 1]);
+        }
+        break;
+    }
+  }
+  return [...new Set(targets)].filter((t) => !IGNORED_TARGETS.has(t));
+}
+
+// src/hook.ts
 var ALLOW = { exitCode: 0, stdout: "", stderr: "" };
 var EDIT_TOOLS = /* @__PURE__ */ new Set(["edit", "write", "multiedit", "notebookedit"]);
 var HARNESS_WRITE = /\.tdd-sdd\/(state\.json|overrides\.log)/;
@@ -510,27 +602,35 @@ var WRITE_OPERATOR = />|\btee\b|\bsed\s+-i|\bmv\b|\brm\b|\bcp\b|\bdd\b|\btruncat
 function deny(rule, reason) {
   return { exitCode: 2, stdout: "", stderr: `[tdd-sdd] ${reason} (regla: ${rule})` };
 }
-function actionFor(input, root2) {
+function projectRelative(file, root2) {
+  const rel = isAbsolute(file) ? relative(root2, file) : file;
+  return rel.startsWith("..") || isAbsolute(rel) ? void 0 : rel;
+}
+function actionsFor(input, root2) {
   const tool = (input.tool_name ?? "").toLowerCase();
   const args = input.tool_input ?? {};
   if (EDIT_TOOLS.has(tool)) {
     const raw = args.file_path ?? args.filePath ?? args.notebook_path ?? args.path;
-    if (!raw) return void 0;
-    const file = isAbsolute(raw) ? relative(root2, raw) : raw;
-    return { type: "edit", file };
+    if (!raw) return [];
+    const file = projectRelative(raw, root2);
+    return file === void 0 ? [] : [{ type: "edit", file }];
   }
-  if (tool === "bash") {
-    const command2 = args.command ?? "";
-    if (HARNESS_WRITE.test(command2) && WRITE_OPERATOR.test(command2)) {
-      return deny("HARNESS_FILE_PROTECTED", "Los archivos de estado del harness no se modifican desde la shell.");
-    }
-    if (/\bgit\b[^|;&]*\bcommit\b/.test(command2)) return { type: "commit" };
-    if (/\bgit\b[^|;&]*\bpush\b/.test(command2)) return { type: "push" };
+  if (tool !== "bash") return [];
+  const command2 = args.command ?? "";
+  if (HARNESS_WRITE.test(command2) && WRITE_OPERATOR.test(command2)) {
+    return deny("HARNESS_FILE_PROTECTED", "Los archivos de estado del harness no se modifican desde la shell.");
   }
-  return void 0;
+  const actions = [];
+  for (const target of extractWriteTargets(command2)) {
+    const file = projectRelative(target, root2);
+    if (file !== void 0) actions.push({ type: "edit", file });
+  }
+  if (/\bgit\b[^|;&]*\bcommit\b/.test(command2)) actions.push({ type: "commit" });
+  if (/\bgit\b[^|;&]*\bpush\b/.test(command2)) actions.push({ type: "push" });
+  return actions;
 }
 function isHookResult(value) {
-  return value !== void 0 && "exitCode" in value;
+  return !Array.isArray(value);
 }
 function decide(input, root2, action) {
   const state = loadState(root2);
@@ -566,10 +666,13 @@ function handleHook(input, root2, options = {}) {
   if (!loadState(root2)) return ALLOW;
   switch (input.hook_event_name) {
     case "PreToolUse": {
-      const action = actionFor(input, root2);
-      if (action === void 0) return ALLOW;
-      if (isHookResult(action)) return action;
-      return decide(input, root2, action);
+      const actions = actionsFor(input, root2);
+      if (isHookResult(actions)) return actions;
+      for (const action of actions) {
+        const result = decide(input, root2, action);
+        if (result.exitCode === 2) return result;
+      }
+      return ALLOW;
     }
     case "Stop":
       if (input.stop_hook_active) return ALLOW;

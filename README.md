@@ -51,6 +51,6 @@ pnpm --filter @tdd-sdd/cli build   # regenera packages/adapter-claude/bin/tdd-sd
 
 ## Limitaciones conocidas (MVP)
 
-- El bloqueo de edición cubre las herramientas de edición y los comandos de shell que escriben en archivos del harness; una escritura arbitraria desde `Bash` a código de producción no se detecta.
+- Desde `Bash` se detectan redirecciones (`>`, `>>`), `tee`, `sed -i`, `cp`, `mv` y `rm` hacia archivos del proyecto; una escritura indirecta (un script, `python -c`, `git checkout`) no se detecta. Una redirección de salida a un archivo del proyecto también se evalúa como edición.
 - Rutas del scope guard por coincidencia exacta (sin globs).
 - La API del plugin de opencode está escrita contra la documentación pública y no se ha probado dentro de opencode.
