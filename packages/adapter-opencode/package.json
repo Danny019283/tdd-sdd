@@ -1,0 +1,13 @@
+{
+  "name": "@tdd-sdd/adapter-opencode",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tdd-sdd/cli": "workspace:*"
+  }
+}

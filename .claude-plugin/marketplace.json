@@ -1,0 +1,11 @@
+{
+  "name": "tdd-sdd",
+  "owner": { "name": "dannyas" },
+  "plugins": [
+    {
+      "name": "tdd-sdd",
+      "source": "./packages/adapter-claude",
+      "description": "Harness de desarrollo guiado por casos de uso (SDD) y TDD, con compuertas humanas y bloqueo por hooks."
+    }
+  ]
+}

@@ -18,6 +18,12 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.5)
 
+  packages/adapter-opencode:
+    dependencies:
+      '@tdd-sdd/cli':
+        specifier: workspace:*
+        version: link:../cli
+
   packages/cli:
     dependencies:
       '@tdd-sdd/core':

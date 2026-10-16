@@ -1,0 +1,8 @@
+{
+  "name": "tdd-sdd",
+  "version": "0.1.0",
+  "description": "Harness SDD + TDD: spec de caso de uso aprobada por el humano, plan con checklist, ciclo rojo→verde con parada de revisión y commit por check.",
+  "author": {
+    "name": "dannyas"
+  }
+}
