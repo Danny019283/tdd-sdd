@@ -81,7 +81,37 @@ function evaluateCommit(context: RuleContext): Decision {
   };
 }
 
+function evaluateHarnessFile(context: RuleContext, file: string): Decision | undefined {
+  const path = normalizePath(file);
+  if (!path.startsWith(".tdd-sdd/")) return undefined;
+  const name = path.split("/").pop();
+  if (path === ".tdd-sdd/state.json" || path === ".tdd-sdd/overrides.log") {
+    return {
+      allow: false,
+      rule: "HARNESS_FILE_PROTECTED",
+      reason: `${file} lo gestiona el harness; no se edita a mano.`,
+    };
+  }
+  if (name === "spec.md" && context.phase !== "spec_draft") {
+    return {
+      allow: false,
+      rule: "SPEC_FROZEN",
+      reason: `${file} está aprobada y no se modifica. Si cambia el requisito, el humano debe pedir una enmienda.`,
+    };
+  }
+  if (name === "plan.md" && context.phase !== "spec_draft" && context.phase !== "spec_approved") {
+    return {
+      allow: false,
+      rule: "PLAN_FROZEN",
+      reason: `${file} está aprobado; solo el harness marca checks. No lo edites a mano.`,
+    };
+  }
+  return { allow: true };
+}
+
 function evaluateEdit(context: RuleContext, action: { type: "edit"; file: string }): Decision {
+  const harness = evaluateHarnessFile(context, action.file);
+  if (harness) return harness;
   if (context.allowedFiles !== undefined) {
     const allowed = context.allowedFiles.map(normalizePath);
     if (!allowed.includes(normalizePath(action.file))) {

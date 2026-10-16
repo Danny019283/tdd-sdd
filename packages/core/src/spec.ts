@@ -31,7 +31,8 @@ function parseSections(markdown: string): Map<string, string> {
   matches.forEach((match, i) => {
     const start = (match.index ?? 0) + match[0].length;
     const end = matches[i + 1]?.index ?? markdown.length;
-    sections.set(match[1]!, markdown.slice(start, end).trim());
+    const body = markdown.slice(start, end).replace(/<!--[\s\S]*?-->/g, "").trim();
+    sections.set(match[1]!, body);
   });
   return sections;
 }

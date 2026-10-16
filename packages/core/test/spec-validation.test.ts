@@ -59,4 +59,15 @@ describe("validateSpec", () => {
       expect.objectContaining({ section: "Disparador", code: "MULTIPLE_TRIGGERS" }),
     );
   });
+
+  it("ignores HTML comments, so template hints do not count as content", () => {
+    const hintOnly = validateSpec(specWith({ Alcance: "<!-- qué incluye y qué no -->" }));
+    expect(hintOnly.errors).toContainEqual(
+      expect.objectContaining({ section: "Alcance", code: "EMPTY_SECTION" }),
+    );
+    const placeholder = validateSpec(specWith({ Alcance: "pendiente\n<!-- hint -->" }));
+    expect(placeholder.errors).toContainEqual(
+      expect.objectContaining({ section: "Alcance", code: "PLACEHOLDER" }),
+    );
+  });
 });
