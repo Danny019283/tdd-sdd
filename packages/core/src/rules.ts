@@ -6,9 +6,17 @@ export interface RuleContext {
   allowedFiles?: readonly string[];
   /** El humano aprobó un check y su commit aún no se ha hecho. */
   pendingCommit?: boolean;
+  /** Checks sin completar en el plan; si no se conoce, no se permite el push. */
+  remainingChecks?: number;
+  /** El humano dio la aprobación final de la checklist completa. */
+  finalApproved?: boolean;
 }
 
-export type Action = { type: "edit"; file: string } | { type: "commit" };
+export type Action =
+  | { type: "edit"; file: string }
+  | { type: "commit" }
+  | { type: "push" }
+  | { type: "stop" };
 
 export type Decision =
   | { allow: true }
@@ -30,7 +38,38 @@ function normalizePath(file: string): string {
 
 export function evaluate(context: RuleContext, action: Action): Decision {
   if (action.type === "commit") return evaluateCommit(context);
+  if (action.type === "push") return evaluatePush(context);
+  if (action.type === "stop") return evaluateStop(context);
   return evaluateEdit(context, action);
+}
+
+function evaluatePush(context: RuleContext): Decision {
+  if (context.remainingChecks !== 0) {
+    return {
+      allow: false,
+      rule: "PUSH_REQUIRES_COMPLETE_PLAN",
+      reason: "No se puede hacer push: la checklist del plan no está completa.",
+    };
+  }
+  if (!context.finalApproved) {
+    return {
+      allow: false,
+      rule: "PUSH_REQUIRES_FINAL_APPROVAL",
+      reason: "No se puede hacer push: falta la aprobación final del humano.",
+    };
+  }
+  return { allow: true };
+}
+
+function evaluateStop(context: RuleContext): Decision {
+  if (context.phase === "green") {
+    return {
+      allow: false,
+      rule: "STOP_REQUIRES_REVIEW",
+      reason: "Los tests están en verde: presenta la parada de revisión (qué cambió y qué cubre) antes de terminar.",
+    };
+  }
+  return { allow: true };
 }
 
 function evaluateCommit(context: RuleContext): Decision {
