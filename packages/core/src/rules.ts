@@ -2,6 +2,8 @@ import type { CyclePhase } from "./cycle.js";
 
 export interface RuleContext {
   phase: CyclePhase;
+  /** Archivos declarados por el check actual; si no hay check activo, no se define. */
+  allowedFiles?: readonly string[];
 }
 
 export type Action = { type: "edit"; file: string };
@@ -20,7 +22,21 @@ const PRODUCTION_EDIT_PHASES: ReadonlySet<CyclePhase> = new Set(["red", "refacto
 
 const FROZEN_AFTER_GREEN: ReadonlySet<CyclePhase> = new Set(["green", "review"]);
 
+function normalizePath(file: string): string {
+  return file.replace(/^(\.\/)+/, "");
+}
+
 export function evaluate(context: RuleContext, action: Action): Decision {
+  if (context.allowedFiles !== undefined) {
+    const allowed = context.allowedFiles.map(normalizePath);
+    if (!allowed.includes(normalizePath(action.file))) {
+      return {
+        allow: false,
+        rule: "OUT_OF_SCOPE",
+        reason: `${action.file} no forma parte del check actual. Archivos permitidos: ${allowed.join(", ")}. Si hace falta tocarlo, pide al humano que amplíe el plan.`,
+      };
+    }
+  }
   if (isTestFile(action.file) && context.phase === "refactor") {
     return {
       allow: false,
