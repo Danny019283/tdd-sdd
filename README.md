@@ -68,6 +68,22 @@ Los comandos de rol los acepta el hook solo si `agent_type` es el correcto; el h
 
 Luego `/start-dev` en el proyecto.
 
+### Actualizar
+
+```
+/plugin marketplace update tdd-sdd
+/plugin update tdd-sdd@tdd-sdd
+```
+
+Después **reinicia la sesión** (`/exit` y `claude --continue`): los hooks y agentes solo se cargan al arrancar. Claude Code guarda los plugins por versión, así que sube `version` en `packages/adapter-claude/.claude-plugin/plugin.json` cuando cambies el plugin o la copia instalada no se refrescará. Si `update` no basta: `/plugin uninstall tdd-sdd@tdd-sdd` y vuelve a instalar.
+
+### Si los comandos no aparecen
+
+- El plugin puede estar instalado pero **desactivado**: busca `"tdd-sdd@tdd-sdd": false` en `~/.claude/settings.json` (`enabledPlugins`) y actívalo desde `/plugin` o poniéndolo a `true`.
+- Con el plugin activo, los comandos llevan prefijo: `/tdd-sdd:start-dev`, `/tdd-sdd:status`, `/tdd-sdd:refactor`. `/approve` y `/override` también funcionan sin prefijo.
+- Comprueba en `/plugin` que la versión instalada es la esperada y que aparecen los cuatro agentes (`redactor`, `desarrollador`, `revisor`, `solucionador`).
+- Los proyectos que ya usan el harness conservan su `.tdd-sdd/`; solo cambian el binario, los hooks y los agentes. Un `plan.md` ya aprobado no gana etiquetas `(refactor)`/`(verificación)` sin `/override PLAN_FROZEN`.
+
 ## Desarrollo
 
 ```
