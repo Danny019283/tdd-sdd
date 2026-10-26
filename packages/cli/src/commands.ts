@@ -93,7 +93,7 @@ function approveSpec(root: string, state: ProjectState): Result {
   const spec = readOptional(specPath(root, state.useCase)) ?? "";
   const validation = validateSpec(spec);
   if (!validation.ok) {
-    const list = validation.errors.map((e) => `- ${e.section}: ${e.code}`).join("\n");
+    const list = validation.errors.map((e) => `- ${e.section}: ${e.code}${e.line ? ` ("${e.line}")` : ""}`).join("\n");
     return fail(`La spec no se puede aprobar todavía:\n${list}`);
   }
   step(root, state, "approve_spec");

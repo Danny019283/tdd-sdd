@@ -70,4 +70,30 @@ describe("validateSpec", () => {
       expect.objectContaining({ section: "Alcance", code: "PLACEHOLDER" }),
     );
   });
+
+  it.each([
+    "- RN-1: monto máximo\n  - Criterio exacto: pendiente",
+    "RN-1: límite de filas: TBD",
+    "RN-1: algo\npendiente.",
+    "- RN-2: por definir",
+    "RN-3 - TODO",
+  ])("rejects a pending mark left inside a section: %s", (body) => {
+    const result = validateSpec(specWith({ "Reglas de negocio": body }));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ section: "Reglas de negocio", code: "PENDING_MARK" });
+    expect(result.errors[0]?.line).toBeTruthy();
+  });
+
+  it.each([
+    "RN-1: un pago pendiente de cobro se reintenta",
+    "RN-1: el estado pendiente pasa a activo al aprobar",
+    "RN-1: la cola de pendientes se vacía cada hora",
+  ])("does not flag domain prose that mentions the word: %s", (body) => {
+    expect(validateSpec(specWith({ "Reglas de negocio": body })).ok).toBe(true);
+  });
+
+  it("ignores pending marks inside HTML comments", () => {
+    expect(validateSpec(specWith({ Alcance: "Incluye X\n<!-- Criterio: pendiente -->" })).ok).toBe(true);
+  });
 });

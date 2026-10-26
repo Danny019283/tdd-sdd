@@ -43,6 +43,15 @@ describe("human commands arrive as user prompts", () => {
     expect(loadState(root)?.phase).toBe("spec_draft");
   });
 
+  it("refuses to freeze a spec that still has a pending mark and shows the line", () => {
+    const root = started();
+    write(root, `${UC}/spec.md`, FILLED_SPEC.replace("contenido de Reglas de negocio", "RN-1: tope\n  Criterio exacto: pendiente"));
+    const result = handleHook(prompt("/approve spec"), root);
+    expect(result.stdout).toMatch(/NO APLICADO/);
+    expect(result.stdout).toMatch(/PENDING_MARK.*Criterio exacto: pendiente/);
+    expect(loadState(root)?.phase).toBe("spec_draft");
+  });
+
   it("ignores ordinary prompts", () => {
     const root = started();
     expect(handleHook(prompt("hola, aprueba la spec por favor"), root)).toMatchObject({ exitCode: 0, stdout: "" });
