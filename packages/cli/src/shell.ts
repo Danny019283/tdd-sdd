@@ -57,12 +57,32 @@ function splitCommands(tokens: Token[]): Token[][] {
   return commands.filter((c) => c.length > 0);
 }
 
+const HEREDOC_START = /<<(?!<)(-?)\s*(?:'([^']+)'|"([^"]+)"|([\w.-]+))/g;
+
+/** Quita los cuerpos de heredoc: son texto, no comandos, y su contenido no debe tokenizarse. */
+function stripHeredocs(command: string): string {
+  const kept: string[] = [];
+  let pending: { delimiter: string; indented: boolean }[] = [];
+  for (const line of command.split("\n")) {
+    const open = pending[0];
+    if (open) {
+      if ((open.indented ? line.trim() : line) === open.delimiter) pending = pending.slice(1);
+      continue;
+    }
+    kept.push(line);
+    for (const match of line.matchAll(HEREDOC_START)) {
+      pending.push({ delimiter: match[2] ?? match[3] ?? match[4]!, indented: match[1] === "-" });
+    }
+  }
+  return kept.join("\n");
+}
+
 const isFlag = (word: string) => word.startsWith("-");
 
 /** Rutas que un comando de shell escribiría, de forma heurística pero conservadora. */
 export function extractWriteTargets(command: string): string[] {
   const targets: string[] = [];
-  for (const tokens of splitCommands(tokenize(command))) {
+  for (const tokens of splitCommands(tokenize(stripHeredocs(command)))) {
     const words: string[] = [];
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i]!;

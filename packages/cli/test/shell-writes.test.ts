@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { extractWriteTargets } from "../src/shell.js";
 import { handleHook, type HookInput } from "../src/hook.js";
@@ -16,6 +17,9 @@ describe("extractWriteTargets", () => {
     ["rm src/a.ts src/b.ts", ["src/a.ts", "src/b.ts"]],
     [`echo hi > "src/a b.ts"`, ["src/a b.ts"]],
     ["echo hi > src/a.ts && echo yo > src/b.ts", ["src/a.ts", "src/b.ts"]],
+    ["cat > spec.md <<'EOF'\nFP-1 -> ok <!-- nota --> it's\nEOF", ["spec.md"]],
+    ["cat <<EOF > spec.md\na > b\nEOF\necho hi > x.ts", ["spec.md", "x.ts"]],
+    ["cat <<-EOF > spec.md\n\ta > b\n\tEOF", ["spec.md"]],
   ])("%s", (command, expected) => {
     expect(extractWriteTargets(command)).toEqual(expected);
   });
@@ -63,5 +67,32 @@ describe("shell writes are held to the same rules as edits", () => {
     const root = tempProject();
     initUseCase(root, "login");
     expect(handleHook(bash("ls -la && cat package.json"), root).exitCode).toBe(0);
+  });
+});
+
+describe("heredocs and relative paths", () => {
+  const spec = ".tdd-sdd/use-cases/login/spec.md";
+
+  it("does not read the body of a heredoc as shell commands", () => {
+    const root = tempProject();
+    initUseCase(root, "login");
+    const command = `cat > ${spec} <<'EOF'\nFP-1 -> ok <!-- nota --> it's\nEOF`;
+    expect(handleHook(bash(command), root)).toMatchObject({ exitCode: 0 });
+  });
+
+  it("resolves relative targets against the cwd of the tool call", () => {
+    const root = tempProject();
+    initUseCase(root, "login");
+    const input: HookInput = { ...bash("echo hi > spec.md"), cwd: join(root, ".tdd-sdd/use-cases/login") };
+    expect(handleHook(input, root)).toMatchObject({ exitCode: 0 });
+  });
+
+  it("still denies a relative production path from a subdirectory", () => {
+    const root = tempProject();
+    initUseCase(root, "login");
+    const input: HookInput = { ...bash("echo hi > login.ts"), cwd: join(root, "src") };
+    const r = handleHook(input, root);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toMatch(/src\/login\.ts/);
   });
 });

@@ -1,4 +1,4 @@
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { buildContext, evaluate, type Action, type Decision } from "@tdd-sdd/core";
 import { humanCommand, status } from "./commands.js";
 import { extractWriteTargets } from "./shell.js";
@@ -28,18 +28,19 @@ function deny(rule: string, reason: string): HookResult {
   return { exitCode: 2, stdout: "", stderr: `[tdd-sdd] ${reason} (regla: ${rule})` };
 }
 
-function projectRelative(file: string, root: string): string | undefined {
-  const rel = isAbsolute(file) ? relative(root, file) : file;
+function projectRelative(file: string, root: string, cwd: string): string | undefined {
+  const rel = relative(root, isAbsolute(file) ? file : resolve(cwd, file));
   return rel.startsWith("..") || isAbsolute(rel) ? undefined : rel;
 }
 
 function actionsFor(input: HookInput, root: string): Action[] | HookResult {
+  const cwd = input.cwd ?? root;
   const tool = (input.tool_name ?? "").toLowerCase();
   const args = input.tool_input ?? {};
   if (EDIT_TOOLS.has(tool)) {
     const raw = args.file_path ?? args.filePath ?? args.notebook_path ?? args.path;
     if (!raw) return [];
-    const file = projectRelative(raw, root);
+    const file = projectRelative(raw, root, cwd);
     return file === undefined ? [] : [{ type: "edit", file }];
   }
   if (tool !== "bash") return [];
@@ -49,7 +50,7 @@ function actionsFor(input: HookInput, root: string): Action[] | HookResult {
   }
   const actions: Action[] = [];
   for (const target of extractWriteTargets(command)) {
-    const file = projectRelative(target, root);
+    const file = projectRelative(target, root, cwd);
     if (file !== undefined) actions.push({ type: "edit", file });
   }
   if (/\bgit\b[^|;&]*\bcommit\b/.test(command)) actions.push({ type: "commit" });
