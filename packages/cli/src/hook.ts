@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { buildContext, evaluate, type Action, type Decision } from "@tdd-sdd/core";
 import { humanCommand, status } from "./commands.js";
 import { extractWriteTargets } from "./shell.js";
-import { loadState, planPath, readOptional, saveState } from "./store.js";
+import { loadConfig, loadState, planPath, readOptional, saveState } from "./store.js";
 
 export interface HookInput {
   hook_event_name: string;
@@ -65,7 +65,7 @@ function isHookResult(value: Action[] | HookResult): value is HookResult {
 function decide(input: HookInput, root: string, action: Action): HookResult {
   const state = loadState(root);
   if (!state) return ALLOW;
-  const context = buildContext(state, readOptional(planPath(root, state.useCase)));
+  const context = buildContext(state, readOptional(planPath(root, state.useCase)), loadConfig(root));
   const decision: Decision = evaluate(context, action);
   if (decision.allow) {
     if (action.type === "commit" && state.pendingCommit) saveState(root, { ...state, pendingCommit: false });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { extractWriteTargets } from "../src/shell.js";
 import { handleHook, type HookInput } from "../src/hook.js";
 import { initUseCase } from "../src/commands.js";
-import { tempProject } from "./helpers.js";
+import { tempProject, write } from "./helpers.js";
 
 describe("extractWriteTargets", () => {
   it.each<[string, string[]]>([
@@ -94,5 +94,24 @@ describe("heredocs and relative paths", () => {
     const r = handleHook(input, root);
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toMatch(/src\/login\.ts/);
+  });
+});
+
+describe("notes and docs are always allowed", () => {
+  const edit = (file: string): HookInput => ({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: file } });
+
+  it("lets a root note through while a check is open", () => {
+    const root = tempProject();
+    initUseCase(root, "login");
+    expect(handleHook(edit(join(root, "PROBLEMAS.txt")), root).exitCode).toBe(0);
+    expect(handleHook(bash("echo nota > docs/notas.md"), root).exitCode).toBe(0);
+  });
+
+  it("honours alwaysAllowed from config.json", () => {
+    const root = tempProject();
+    initUseCase(root, "login");
+    expect(handleHook(bash("echo x > scripts/dev.sh"), root).exitCode).toBe(2);
+    write(root, ".tdd-sdd/config.json", JSON.stringify({ alwaysAllowed: ["scripts/**"] }));
+    expect(handleHook(bash("echo x > scripts/dev.sh"), root).exitCode).toBe(0);
   });
 });

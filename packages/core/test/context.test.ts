@@ -48,4 +48,13 @@ describe("buildContext", () => {
   it("leaves remainingChecks unknown when there is no plan yet", () => {
     expect(buildContext(state({ phase: "spec_draft" })).remainingChecks).toBeUndefined();
   });
+
+  it("carries the extra allowed paths from the project config", () => {
+    const context = buildContext(state(), PLAN, { alwaysAllowed: ["scripts/**"] });
+    expect(context.extraAllowedPaths).toEqual(["scripts/**"]);
+  });
+
+  it("ignores a malformed alwaysAllowed", () => {
+    expect(buildContext(state(), PLAN, { alwaysAllowed: "x" as never }).extraAllowedPaths).toBeUndefined();
+  });
 });

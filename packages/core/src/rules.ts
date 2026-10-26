@@ -1,4 +1,5 @@
 import type { CyclePhase } from "./cycle.js";
+import { matchesGlob } from "./glob.js";
 
 export interface RuleContext {
   phase: CyclePhase;
@@ -10,6 +11,8 @@ export interface RuleContext {
   remainingChecks?: number;
   /** El humano dio la aprobación final de la checklist completa. */
   finalApproved?: boolean;
+  /** Globs adicionales (de config.json) que se pueden editar siempre, sin check ni test en rojo. */
+  extraAllowedPaths?: readonly string[];
 }
 
 export type Action =
@@ -26,6 +29,14 @@ const TEST_FILE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 
 export function isTestFile(file: string): boolean {
   return TEST_FILE.test(file);
+}
+
+/** Documentación y notas: no son código ni tests, así que no entran en el ciclo. */
+export const DEFAULT_ALWAYS_ALLOWED: readonly string[] = ["**/*.md", "**/*.txt", "docs/**"];
+
+function isAlwaysAllowed(context: RuleContext, file: string): boolean {
+  const path = normalizePath(file);
+  return [...DEFAULT_ALWAYS_ALLOWED, ...(context.extraAllowedPaths ?? [])].some((glob) => matchesGlob(path, glob));
 }
 
 const PRODUCTION_EDIT_PHASES: ReadonlySet<CyclePhase> = new Set(["red", "refactor"]);
@@ -119,6 +130,7 @@ function evaluateHarnessFile(context: RuleContext, file: string): Decision | und
 function evaluateEdit(context: RuleContext, action: { type: "edit"; file: string }): Decision {
   const harness = evaluateHarnessFile(context, action.file);
   if (harness) return harness;
+  if (isAlwaysAllowed(context, action.file)) return { allow: true };
   if (context.allowedFiles !== undefined) {
     const allowed = context.allowedFiles.map(normalizePath);
     if (!allowed.includes(normalizePath(action.file))) {

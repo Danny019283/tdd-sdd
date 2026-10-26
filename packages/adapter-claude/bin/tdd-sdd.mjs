@@ -111,10 +111,39 @@ function transition(phase, event) {
   return next;
 }
 
+// ../core/src/glob.ts
+var cache = /* @__PURE__ */ new Map();
+function toRegExp(pattern) {
+  let regex = cache.get(pattern);
+  if (regex) return regex;
+  let source = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "*" && pattern[i + 1] === "*") {
+      const slash = pattern[i + 2] === "/";
+      source += slash ? "(?:.*/)?" : ".*";
+      i += slash ? 2 : 1;
+    } else if (c === "*") source += "[^/]*";
+    else if (c === "?") source += "[^/]";
+    else source += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  regex = new RegExp(`^${source}$`);
+  cache.set(pattern, regex);
+  return regex;
+}
+function matchesGlob(path, pattern) {
+  return toRegExp(pattern).test(path);
+}
+
 // ../core/src/rules.ts
 var TEST_FILE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 function isTestFile(file) {
   return TEST_FILE.test(file);
+}
+var DEFAULT_ALWAYS_ALLOWED = ["**/*.md", "**/*.txt", "docs/**"];
+function isAlwaysAllowed(context, file) {
+  const path = normalizePath(file);
+  return [...DEFAULT_ALWAYS_ALLOWED, ...context.extraAllowedPaths ?? []].some((glob) => matchesGlob(path, glob));
 }
 var PRODUCTION_EDIT_PHASES = /* @__PURE__ */ new Set(["red", "refactor"]);
 var FROZEN_AFTER_GREEN = /* @__PURE__ */ new Set(["green", "review"]);
@@ -199,6 +228,7 @@ function evaluateHarnessFile(context, file) {
 function evaluateEdit(context, action) {
   const harness = evaluateHarnessFile(context, action.file);
   if (harness) return harness;
+  if (isAlwaysAllowed(context, action.file)) return { allow: true };
   if (context.allowedFiles !== void 0) {
     const allowed = context.allowedFiles.map(normalizePath);
     if (!allowed.includes(normalizePath(action.file))) {
@@ -241,12 +271,14 @@ var SCOPED_PHASES = /* @__PURE__ */ new Set([
   "review",
   "refactor"
 ]);
-function buildContext(state, planMarkdown) {
+function buildContext(state, planMarkdown, config = {}) {
   const context = {
     phase: state.phase,
     pendingCommit: state.pendingCommit,
     finalApproved: state.finalApproved
   };
+  const extra = config.alwaysAllowed;
+  if (Array.isArray(extra) && extra.every((glob) => typeof glob === "string")) context.extraAllowedPaths = extra;
   if (planMarkdown === void 0) return context;
   const checks = parsePlan(planMarkdown);
   const pending = checks.filter((check) => !check.done);
@@ -325,6 +357,16 @@ function saveState(root2, state) {
   const file = statePath(root2);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(state, null, 2) + "\n");
+}
+function loadConfig(root2) {
+  const raw = readOptional(join(root2, HARNESS_DIR, "config.json"));
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed !== null && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 function readOptional(file) {
   return existsSync(file) ? readFileSync(file, "utf8") : void 0;
@@ -518,7 +560,7 @@ function status(root2) {
 }
 
 // src/hook.ts
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, resolve as resolve2 } from "node:path";
 
 // src/shell.ts
 var IGNORED_TARGETS = /* @__PURE__ */ new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "-"]);
@@ -574,10 +616,27 @@ function splitCommands(tokens) {
   }
   return commands.filter((c) => c.length > 0);
 }
+var HEREDOC_START = /<<(?!<)(-?)\s*(?:'([^']+)'|"([^"]+)"|([\w.-]+))/g;
+function stripHeredocs(command2) {
+  const kept = [];
+  let pending = [];
+  for (const line of command2.split("\n")) {
+    const open = pending[0];
+    if (open) {
+      if ((open.indented ? line.trim() : line) === open.delimiter) pending = pending.slice(1);
+      continue;
+    }
+    kept.push(line);
+    for (const match of line.matchAll(HEREDOC_START)) {
+      pending.push({ delimiter: match[2] ?? match[3] ?? match[4], indented: match[1] === "-" });
+    }
+  }
+  return kept.join("\n");
+}
 var isFlag = (word) => word.startsWith("-");
 function extractWriteTargets(command2) {
   const targets = [];
-  for (const tokens of splitCommands(tokenize(command2))) {
+  for (const tokens of splitCommands(tokenize(stripHeredocs(command2)))) {
     const words = [];
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
@@ -618,17 +677,18 @@ var WRITE_OPERATOR = />|\btee\b|\bsed\s+-i|\bmv\b|\brm\b|\bcp\b|\bdd\b|\btruncat
 function deny(rule, reason) {
   return { exitCode: 2, stdout: "", stderr: `[tdd-sdd] ${reason} (regla: ${rule})` };
 }
-function projectRelative(file, root2) {
-  const rel = isAbsolute(file) ? relative(root2, file) : file;
+function projectRelative(file, root2, cwd2) {
+  const rel = relative(root2, isAbsolute(file) ? file : resolve2(cwd2, file));
   return rel.startsWith("..") || isAbsolute(rel) ? void 0 : rel;
 }
 function actionsFor(input, root2) {
+  const cwd2 = input.cwd ?? root2;
   const tool = (input.tool_name ?? "").toLowerCase();
   const args = input.tool_input ?? {};
   if (EDIT_TOOLS.has(tool)) {
     const raw = args.file_path ?? args.filePath ?? args.notebook_path ?? args.path;
     if (!raw) return [];
-    const file = projectRelative(raw, root2);
+    const file = projectRelative(raw, root2, cwd2);
     return file === void 0 ? [] : [{ type: "edit", file }];
   }
   if (tool !== "bash") return [];
@@ -638,7 +698,7 @@ function actionsFor(input, root2) {
   }
   const actions = [];
   for (const target of extractWriteTargets(command2)) {
-    const file = projectRelative(target, root2);
+    const file = projectRelative(target, root2, cwd2);
     if (file !== void 0) actions.push({ type: "edit", file });
   }
   if (/\bgit\b[^|;&]*\bcommit\b/.test(command2)) actions.push({ type: "commit" });
@@ -651,7 +711,7 @@ function isHookResult(value) {
 function decide(input, root2, action) {
   const state = loadState(root2);
   if (!state) return ALLOW;
-  const context = buildContext(state, readOptional(planPath(root2, state.useCase)));
+  const context = buildContext(state, readOptional(planPath(root2, state.useCase)), loadConfig(root2));
   const decision = evaluate(context, action);
   if (decision.allow) {
     if (action.type === "commit" && state.pendingCommit) saveState(root2, { ...state, pendingCommit: false });

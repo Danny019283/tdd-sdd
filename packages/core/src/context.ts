@@ -19,12 +19,20 @@ const SCOPED_PHASES: ReadonlySet<CyclePhase> = new Set([
   "refactor",
 ]);
 
-export function buildContext(state: ProjectState, planMarkdown?: string): RuleContext {
+export interface ProjectConfig {
+  testCommand?: string;
+  /** Globs extra que se pueden editar siempre (además de docs y notas). */
+  alwaysAllowed?: string[];
+}
+
+export function buildContext(state: ProjectState, planMarkdown?: string, config: ProjectConfig = {}): RuleContext {
   const context: RuleContext = {
     phase: state.phase,
     pendingCommit: state.pendingCommit,
     finalApproved: state.finalApproved,
   };
+  const extra = config.alwaysAllowed;
+  if (Array.isArray(extra) && extra.every((glob) => typeof glob === "string")) context.extraAllowedPaths = extra;
   if (planMarkdown === undefined) return context;
   const checks = parsePlan(planMarkdown);
   const pending = checks.filter((check) => !check.done);

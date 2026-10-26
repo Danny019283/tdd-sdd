@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { ProjectState } from "@tdd-sdd/core";
+import type { ProjectConfig, ProjectState } from "@tdd-sdd/core";
 
 export const HARNESS_DIR = ".tdd-sdd";
 
@@ -20,6 +20,17 @@ export function saveState(root: string, state: ProjectState): void {
   const file = statePath(root);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(state, null, 2) + "\n");
+}
+
+export function loadConfig(root: string): ProjectConfig {
+  const raw = readOptional(join(root, HARNESS_DIR, "config.json"));
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null && typeof parsed === "object" ? (parsed as ProjectConfig) : {};
+  } catch {
+    return {};
+  }
 }
 
 export function readOptional(file: string): string | undefined {
