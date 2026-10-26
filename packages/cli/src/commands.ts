@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  amendFiles,
   buildContext,
   markCheckDone,
   parsePlan,
@@ -8,9 +9,12 @@ import {
   validateSpec,
   type CycleEvent,
   type ProjectState,
+  type RoleCommand,
 } from "@tdd-sdd/core";
 import { PLAN_TEMPLATE, SPEC_TEMPLATE } from "./templates.js";
 import {
+  appendLog,
+  loadConfig,
   loadState,
   logOverride,
   planPath,
@@ -134,7 +138,7 @@ function approveCheck(root: string, state: ProjectState): Result {
 }
 
 function approveFinal(root: string, state: ProjectState): Result {
-  const context = buildContext(state, readOptional(planPath(root, state.useCase)));
+  const context = buildContext(state, readOptional(planPath(root, state.useCase)), loadConfig(root));
   if (context.remainingChecks !== 0) {
     return fail(`Aún quedan ${context.remainingChecks ?? "?"} checks sin completar.`);
   }
@@ -224,4 +228,59 @@ export function status(root: string): string {
     ...checks.map((c) => `[${c.done ? "x" : " "}] ${c.id}. ${c.title}  (cubre: ${c.covers.join(", ")})`),
   ];
   return lines.join("\n");
+}
+
+const GRANT_TTL_MS = 60_000;
+
+/** Consume el permiso de un solo uso que dejó el hook; sin él el comando no corresponde a ese rol. */
+function takeGrant(root: string, state: ProjectState, action: RoleCommand): { state: ProjectState; agent: string } | Result {
+  const grant = state.grant;
+  const age = grant ? Date.now() - Date.parse(grant.at) : Infinity;
+  const { grant: _spent, ...rest } = state;
+  if (grant) saveState(root, rest);
+  if (!grant || grant.action !== action || !(age >= 0 && age <= GRANT_TTL_MS)) {
+    return fail("Este comando solo se acepta cuando lo lanza el agente que corresponde a través del hook (no hay permiso vigente).");
+  }
+  return { state: rest, agent: grant.agent };
+}
+
+/** El revisor corre los tests y solo si pasan aprueba el check en curso. */
+export function approveCheckAsReviewer(root: string, runTests: () => number): Result {
+  const state = requireState(root);
+  if (isResult(state)) return state;
+  const taken = takeGrant(root, state, "approve_check");
+  if ("message" in taken) return taken;
+  if (state.phase !== "review") return fail(`No hay un check en revisión (fase ${state.phase}).`);
+  const current = currentCheck(root, taken.state);
+  if (!current) return fail("No quedan checks pendientes.");
+  const exitCode = runTests();
+  appendLog(root, "approvals.log", `check ${current.id} ${taken.agent} tests=${exitCode === 0 ? "pass" : "fail"}`);
+  if (exitCode !== 0) {
+    return fail(`Check ${current.id} NO aprobado: los tests fallan. Vuelve al desarrollador; esto se le muestra al humano.`);
+  }
+  return approveCheck(root, taken.state);
+}
+
+/** El solucionador ajusta los archivos del check en curso; nada más del plan se toca. */
+export function amendCheckFiles(root: string, id: number, change: { add: string[]; remove: string[] }): Result {
+  const state = requireState(root);
+  if (isResult(state)) return state;
+  const taken = takeGrant(root, state, "amend_files");
+  if ("message" in taken) return taken;
+  if (!["plan_approved", "red", "green", "review", "refactor"].includes(state.phase)) {
+    return fail(`El plan aún no está aprobado (fase ${state.phase}).`);
+  }
+  const current = currentCheck(root, taken.state);
+  if (!current || current.id !== id) {
+    return fail(`Solo se pueden ajustar los archivos del check en curso (${current?.id ?? "ninguno"}), no el ${id}.`);
+  }
+  const file = planPath(root, state.useCase);
+  try {
+    writeText(file, amendFiles(readOptional(file) ?? "", id, change));
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+  const summary = [...change.add.map((f) => `+${f}`), ...change.remove.map((f) => `-${f}`)].join(" ");
+  appendLog(root, "amendments.log", `check ${id} ${taken.agent} ${summary}`);
+  return ok(`Archivos del check ${id} actualizados (${summary}). Si hay que añadir o quitar checks, cambiar lo que cubren o la spec, pregunta al humano.`);
 }

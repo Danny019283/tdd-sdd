@@ -42,6 +42,12 @@ export function writeText(file: string, content: string): void {
   writeFileSync(file, content);
 }
 
+export function appendLog(root: string, name: "approvals.log" | "amendments.log", line: string): void {
+  const file = join(root, HARNESS_DIR, name);
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${new Date().toISOString()} ${line}\n`);
+}
+
 export function logOverride(root: string, rule: string): void {
   const file = overridesLogPath(root);
   mkdirSync(dirname(file), { recursive: true });

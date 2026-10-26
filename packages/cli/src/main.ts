@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { finishRefactor, initUseCase, recordTestRun, requestReview, status, type Result } from "./commands.js";
+import {
+  amendCheckFiles,
+  approveCheckAsReviewer,
+  finishRefactor,
+  initUseCase,
+  recordTestRun,
+  requestReview,
+  status,
+  type Result,
+} from "./commands.js";
 import { handleHook, type HookInput } from "./hook.js";
 import { findRoot, HARNESS_DIR } from "./store.js";
 
@@ -67,7 +76,20 @@ switch (command) {
     print(finishRefactor(root, code));
     break;
   }
+  case "approve-check":
+    print(approveCheckAsReviewer(root, () => runTests(root)));
+    break;
+  case "amend-files": {
+    const id = Number(rest[0]);
+    const list = (flag: string) => (rest.includes(flag) ? (rest[rest.indexOf(flag) + 1] ?? "") : "").split(",").map((f) => f.trim()).filter(Boolean);
+    if (!Number.isInteger(id)) {
+      process.stderr.write("Uso: tdd-sdd amend-files <id-check> [--add a,b] [--remove c]\n");
+      process.exit(1);
+    }
+    print(amendCheckFiles(root, id, { add: list("--add"), remove: list("--remove") }));
+    break;
+  }
   default:
-    process.stderr.write("Uso: tdd-sdd init <id> | test | review | refactor-done | status | hook\n");
+    process.stderr.write("Uso: tdd-sdd init <id> | test | review | refactor-done | approve-check | amend-files | status | hook\n");
     process.exit(1);
 }

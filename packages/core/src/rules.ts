@@ -19,7 +19,16 @@ export type Action =
   | { type: "edit"; file: string }
   | { type: "commit" }
   | { type: "push" }
-  | { type: "stop" };
+  | { type: "stop" }
+  | { type: "role_command"; command: RoleCommand; role: string };
+
+/** Comandos del CLI que solo puede lanzar un rol concreto (el rol sale del subagente que llama). */
+export type RoleCommand = "approve_check" | "amend_files";
+
+const ROLE_FOR_COMMAND: Record<RoleCommand, string> = {
+  approve_check: "revisor",
+  amend_files: "solucionador",
+};
 
 export type Decision =
   | { allow: true }
@@ -51,7 +60,18 @@ export function evaluate(context: RuleContext, action: Action): Decision {
   if (action.type === "commit") return evaluateCommit(context);
   if (action.type === "push") return evaluatePush(context);
   if (action.type === "stop") return evaluateStop(context);
+  if (action.type === "role_command") return evaluateRoleCommand(action);
   return evaluateEdit(context, action);
+}
+
+function evaluateRoleCommand(action: { command: RoleCommand; role: string }): Decision {
+  const required = ROLE_FOR_COMMAND[action.command];
+  if (action.role === required) return { allow: true };
+  return {
+    allow: false,
+    rule: "ROLE_NOT_ALLOWED",
+    reason: `Este comando solo lo puede lanzar el agente ${required} (llamó: ${action.role}). Si te bloquea, devuélvelo al orquestador.`,
+  };
 }
 
 function evaluatePush(context: RuleContext): Decision {
@@ -92,11 +112,18 @@ function evaluateCommit(context: RuleContext): Decision {
   };
 }
 
+const HARNESS_MANAGED: ReadonlySet<string> = new Set([
+  ".tdd-sdd/state.json",
+  ".tdd-sdd/overrides.log",
+  ".tdd-sdd/approvals.log",
+  ".tdd-sdd/amendments.log",
+]);
+
 function evaluateHarnessFile(context: RuleContext, file: string): Decision | undefined {
   const path = normalizePath(file);
   if (!path.startsWith(".tdd-sdd/")) return undefined;
   const name = path.split("/").pop();
-  if (path === ".tdd-sdd/state.json" || path === ".tdd-sdd/overrides.log") {
+  if (HARNESS_MANAGED.has(path)) {
     return {
       allow: false,
       rule: "HARNESS_FILE_PROTECTED",

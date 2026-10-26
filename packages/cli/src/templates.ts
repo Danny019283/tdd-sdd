@@ -42,7 +42,9 @@ pendiente
 export const PLAN_TEMPLATE = `# Plan: {{id}}
 
 <!-- Un check por comportamiento verificable. Cada check declara qué elementos de la spec cubre
-     y los únicos archivos que puede tocar. Los tests apuntan a la entrada/salida del caso de uso. -->
+     y los únicos archivos que puede tocar. Los tests apuntan a la entrada/salida del caso de uso.
+     Etiquetas opcionales tras el número: (refactor) = limpieza sin cambiar comportamiento, parte de tests en verde;
+     (verificación) = solo añade pruebas sobre código existente. Sin etiqueta = comportamiento nuevo (rojo → verde). -->
 
 - [ ] 1. Título del primer check
   - cubre: FP-1

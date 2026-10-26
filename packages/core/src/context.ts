@@ -1,6 +1,6 @@
 import type { CyclePhase } from "./cycle.js";
 import { parsePlan } from "./plan.js";
-import type { RuleContext } from "./rules.js";
+import type { RoleCommand, RuleContext } from "./rules.js";
 
 export interface ProjectState {
   useCase: string;
@@ -9,6 +9,8 @@ export interface ProjectState {
   finalApproved: boolean;
   /** Reglas que el humano decidió saltarse explícitamente. */
   overrides: string[];
+  /** Permiso de un solo uso que el hook deja al aceptar un comando de rol; el CLI lo consume. */
+  grant?: { action: RoleCommand; agent: string; at: string };
 }
 
 const SCOPED_PHASES: ReadonlySet<CyclePhase> = new Set([
