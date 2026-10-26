@@ -155,16 +155,32 @@ function override(root: string, state: ProjectState, rule: string): Result {
   return ok(`Override registrado para ${rule}.`);
 }
 
+function currentCheck(root: string, state: ProjectState) {
+  const plan = readOptional(planPath(root, state.useCase));
+  return plan ? parsePlan(plan).find((c) => !c.done) : undefined;
+}
+
 /** Registra el resultado de ejecutar el comando de tests y avanza el ciclo si corresponde. */
 export function recordTestRun(root: string, exitCode: number): Result {
   const state = requireState(root);
   if (isResult(state)) return state;
   const passed = exitCode === 0;
   switch (state.phase) {
-    case "plan_approved":
+    case "plan_approved": {
+      const kind = currentCheck(root, state)?.kind ?? "behavior";
+      if (kind === "refactor") {
+        if (!passed) return fail("El refactor parte de tests en verde: arréglalos antes de refactorizar.");
+        step(root, state, "start_refactor");
+        return ok("REFACTOR habilitado: los tests actuales son la red y quedan congelados. Refactoriza sin cambiar comportamiento y termina con tdd-sdd refactor-done.");
+      }
+      if (passed && kind === "verify") {
+        step(root, state, "verified_green");
+        return ok("VERDE: las pruebas de verificación pasan sin código nuevo. Presenta la parada de revisión (tdd-sdd review).");
+      }
       if (passed) return fail("Los tests pasan sin implementación: el test nuevo no está demostrando nada. Escribe un test que falle.");
       step(root, state, "tests_red");
       return ok("ROJO registrado. Confirma que falla por comportamiento ausente y no por un error de configuración o de ejecución; luego implementa lo mínimo.");
+    }
     case "red":
       if (!passed) return ok("Sigue en rojo.");
       step(root, state, "tests_green");

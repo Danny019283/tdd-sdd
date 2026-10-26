@@ -35,4 +35,21 @@ describe("transition", () => {
   ])("rejects %s + %s", (phase, event) => {
     expect(() => transition(phase, event)).toThrow(/transición inválida/);
   });
+
+  it("lets a refactor check start from the approved plan with the tests as safety net", () => {
+    expect(run("plan_approved", ["start_refactor"])).toBe("refactor");
+    expect(run("plan_approved", ["start_refactor", "refactor_done", "approve_check"])).toBe("plan_approved");
+  });
+
+  it("lets a verification check go straight to green", () => {
+    expect(run("plan_approved", ["verified_green", "request_review", "approve_check"])).toBe("plan_approved");
+  });
+
+  it.each<[CyclePhase, CycleEvent]>([
+    ["red", "start_refactor"],
+    ["green", "verified_green"],
+    ["review", "start_refactor"],
+  ])("rejects %s + %s", (phase, event) => {
+    expect(() => transition(phase, event)).toThrow(/transición inválida/);
+  });
 });

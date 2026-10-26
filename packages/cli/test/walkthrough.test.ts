@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { handleHook, type HookInput } from "../src/hook.js";
-import { humanCommand, initUseCase, recordTestRun, requestReview } from "../src/commands.js";
+import { finishRefactor, humanCommand, initUseCase, recordTestRun, requestReview } from "../src/commands.js";
 import { loadState } from "../src/store.js";
 import { FILLED_SPEC, PLAN, read, tempProject, write } from "./helpers.js";
 
@@ -89,5 +89,71 @@ describe("full use-case walkthrough through the hooks", () => {
     expect(handleHook(bash("git push origin main"), root).exitCode).toBe(2);
     expect(humanCommand(root, "approve", "final").ok).toBe(true);
     expect(handleHook(bash("git push origin main"), root).exitCode).toBe(0);
+  });
+});
+
+const KINDS_PLAN = `# Plan
+
+- [ ] 1. (refactor) Extraer lo común
+  - cubre: RNF-2
+  - archivos: src/common.ts, src/login.ts
+- [ ] 2. (verificación) Integración real
+  - cubre: RNF-1
+  - archivos: tests/it.test.ts
+- [ ] 3. Comportamiento nuevo
+  - cubre: FP-1
+  - archivos: src/login.ts, tests/login.test.ts
+`;
+
+function approvedWith(plan: string): string {
+  const root = tempProject();
+  initUseCase(root, "login");
+  write(root, `${UC}/spec.md`, FILLED_SPEC);
+  humanCommand(root, "approve", "spec");
+  write(root, `${UC}/plan.md`, plan);
+  expect(humanCommand(root, "approve", "plan").ok).toBe(true);
+  return root;
+}
+
+describe("refactor and verification checks need no red test", () => {
+  it("opens the refactor phase when the current tests are green", () => {
+    const root = approvedWith(KINDS_PLAN);
+    expect(handleHook(edit("src/common.ts"), root).exitCode).toBe(2);
+    expect(recordTestRun(root, 1)).toMatchObject({ ok: false });
+    expect(loadState(root)?.phase).toBe("plan_approved");
+
+    expect(recordTestRun(root, 0)).toMatchObject({ ok: true });
+    expect(loadState(root)?.phase).toBe("refactor");
+    expect(handleHook(edit("src/common.ts"), root).exitCode).toBe(0);
+    expect(handleHook(edit("tests/login.test.ts"), root).exitCode).toBe(2);
+
+    expect(finishRefactor(root, 1).ok).toBe(false);
+    expect(finishRefactor(root, 0).ok).toBe(true);
+    expect(loadState(root)?.phase).toBe("review");
+    expect(humanCommand(root, "approve", "check").ok).toBe(true);
+    expect(read(root, `${UC}/plan.md`)).toContain("- [x] 1.");
+  });
+
+  it("goes green without a red phase for a verification check and never allows production edits", () => {
+    const root = approvedWith(KINDS_PLAN.replace("- [ ] 1.", "- [x] 1."));
+    expect(handleHook(edit("tests/it.test.ts"), root).exitCode).toBe(0);
+    expect(handleHook(edit("src/login.ts"), root).exitCode).toBe(2);
+
+    expect(recordTestRun(root, 0)).toMatchObject({ ok: true });
+    expect(loadState(root)?.phase).toBe("green");
+    expect(requestReview(root).ok).toBe(true);
+    expect(humanCommand(root, "approve", "check").ok).toBe(true);
+  });
+
+  it("treats a failing verification check as a normal red", () => {
+    const root = approvedWith(KINDS_PLAN.replace("- [ ] 1.", "- [x] 1."));
+    expect(recordTestRun(root, 1).ok).toBe(true);
+    expect(loadState(root)?.phase).toBe("red");
+  });
+
+  it("keeps rejecting green-first runs on behaviour checks", () => {
+    const root = approvedWith(KINDS_PLAN.replace("- [ ] 1.", "- [x] 1.").replace("- [ ] 2.", "- [x] 2."));
+    expect(recordTestRun(root, 0)).toMatchObject({ ok: false });
+    expect(loadState(root)?.phase).toBe("plan_approved");
   });
 });

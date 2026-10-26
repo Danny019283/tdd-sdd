@@ -1,12 +1,17 @@
+/** `behavior` pasa por rojo; `refactor` parte de tests en verde; `verify` solo añade pruebas. */
+export type CheckKind = "behavior" | "refactor" | "verify";
+
 export interface PlanCheck {
   id: number;
   title: string;
+  kind: CheckKind;
   done: boolean;
   covers: string[];
   files: string[];
 }
 
 const CHECK_LINE = /^- \[( |x)\]\s+(\d+)\.\s+(.+?)\s*$/;
+const KIND_TAG = /^\((refactor|verificaci[oó]n)\)\s+/i;
 const FIELD_LINE = /^\s+-\s+(cubre|archivos):\s*(.*?)\s*$/;
 
 function splitList(value: string): string[] {
@@ -22,9 +27,11 @@ export function parsePlan(markdown: string): PlanCheck[] {
   for (const line of markdown.split("\n")) {
     const check = CHECK_LINE.exec(line);
     if (check) {
+      const tag = KIND_TAG.exec(check[3]!);
       current = {
         id: Number(check[2]),
-        title: check[3]!,
+        title: tag ? check[3]!.slice(tag[0].length) : check[3]!,
+        kind: tag ? (tag[1]!.toLowerCase() === "refactor" ? "refactor" : "verify") : "behavior",
         done: check[1] === "x",
         covers: [],
         files: [],
