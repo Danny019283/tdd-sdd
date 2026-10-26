@@ -179,7 +179,7 @@ export function recordTestRun(root: string, exitCode: number): Result {
       }
       if (passed && kind === "verify") {
         step(root, state, "verified_green");
-        return ok("VERDE: las pruebas de verificación pasan sin código nuevo. Presenta la parada de revisión (tdd-sdd review).");
+        return ok("VERDE: las pruebas de verificación pasan sin código nuevo. Ejecuta tdd-sdd review.");
       }
       if (passed) return fail("Los tests pasan sin implementación: el test nuevo no está demostrando nada. Escribe un test que falle.");
       step(root, state, "tests_red");
@@ -188,7 +188,7 @@ export function recordTestRun(root: string, exitCode: number): Result {
     case "red":
       if (!passed) return ok("Sigue en rojo.");
       step(root, state, "tests_green");
-      return ok("VERDE. Presenta la parada de revisión (tdd-sdd review).");
+      return ok("VERDE. Ejecuta tdd-sdd review.");
     case "green":
       return passed ? ok("Sigue en verde.") : fail("Regresión: los tests dejaron de pasar tras llegar a verde.");
     default:
@@ -201,7 +201,7 @@ export function requestReview(root: string): Result {
   if (isResult(state)) return state;
   if (state.phase !== "green") return fail(`La revisión se pide en verde (fase ${state.phase}).`);
   step(root, state, "request_review");
-  return ok("Parada de revisión: resume qué cambió y qué elementos de la spec cubre; espera /approve check.");
+  return ok("En revisión. Devuelve al orquestador qué cambió y qué elementos de la spec cubre; NO esperes al humano: el orquestador lanza ahora el agente revisor (tdd-sdd:revisor), que corre los tests y aprueba con tdd-sdd approve-check.");
 }
 
 export function finishRefactor(root: string, exitCode: number): Result {

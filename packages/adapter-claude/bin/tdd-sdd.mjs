@@ -228,7 +228,7 @@ function evaluateStop(context) {
     return {
       allow: false,
       rule: "STOP_REQUIRES_REVIEW",
-      reason: "Los tests est\xE1n en verde: presenta la parada de revisi\xF3n (qu\xE9 cambi\xF3 y qu\xE9 cubre) antes de terminar."
+      reason: "Los tests est\xE1n en verde: ejecuta tdd-sdd review y deja que el revisor apruebe el check antes de terminar."
     };
   }
   return { allow: true };
@@ -590,7 +590,7 @@ function recordTestRun(root2, exitCode) {
       }
       if (passed && kind === "verify") {
         step(root2, state, "verified_green");
-        return ok("VERDE: las pruebas de verificaci\xF3n pasan sin c\xF3digo nuevo. Presenta la parada de revisi\xF3n (tdd-sdd review).");
+        return ok("VERDE: las pruebas de verificaci\xF3n pasan sin c\xF3digo nuevo. Ejecuta tdd-sdd review.");
       }
       if (passed) return fail("Los tests pasan sin implementaci\xF3n: el test nuevo no est\xE1 demostrando nada. Escribe un test que falle.");
       step(root2, state, "tests_red");
@@ -599,7 +599,7 @@ function recordTestRun(root2, exitCode) {
     case "red":
       if (!passed) return ok("Sigue en rojo.");
       step(root2, state, "tests_green");
-      return ok("VERDE. Presenta la parada de revisi\xF3n (tdd-sdd review).");
+      return ok("VERDE. Ejecuta tdd-sdd review.");
     case "green":
       return passed ? ok("Sigue en verde.") : fail("Regresi\xF3n: los tests dejaron de pasar tras llegar a verde.");
     default:
@@ -611,7 +611,7 @@ function requestReview(root2) {
   if (isResult(state)) return state;
   if (state.phase !== "green") return fail(`La revisi\xF3n se pide en verde (fase ${state.phase}).`);
   step(root2, state, "request_review");
-  return ok("Parada de revisi\xF3n: resume qu\xE9 cambi\xF3 y qu\xE9 elementos de la spec cubre; espera /approve check.");
+  return ok("En revisi\xF3n. Devuelve al orquestador qu\xE9 cambi\xF3 y qu\xE9 elementos de la spec cubre; NO esperes al humano: el orquestador lanza ahora el agente revisor (tdd-sdd:revisor), que corre los tests y aprueba con tdd-sdd approve-check.");
 }
 function finishRefactor(root2, exitCode) {
   const state = requireState(root2);

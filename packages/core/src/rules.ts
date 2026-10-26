@@ -97,7 +97,7 @@ function evaluateStop(context: RuleContext): Decision {
     return {
       allow: false,
       rule: "STOP_REQUIRES_REVIEW",
-      reason: "Los tests están en verde: presenta la parada de revisión (qué cambió y qué cubre) antes de terminar.",
+      reason: "Los tests están en verde: ejecuta tdd-sdd review y deja que el revisor apruebe el check antes de terminar.",
     };
   }
   return { allow: true };
