@@ -12,6 +12,9 @@
         "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/tdd-sdd.mjs\" hook" }]
       }
     ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/tdd-sdd.mjs\" hook" }] }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/tdd-sdd.mjs\" hook" }] }
     ]

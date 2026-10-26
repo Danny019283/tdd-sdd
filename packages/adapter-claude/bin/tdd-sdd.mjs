@@ -34,6 +34,10 @@ function parseSections(markdown) {
   });
   return sections;
 }
+var PENDING_LINE = /(?:^|[:\-–—])\s*(?:pendiente|tbd|todo|por definir)\s*[.!]?\s*$/i;
+function findPendingLine(body) {
+  return body.split("\n").map((line) => line.trim()).find((line) => PENDING_LINE.test(line));
+}
 function countListItems(body) {
   return body.split("\n").filter((line) => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line)).length;
 }
@@ -46,6 +50,10 @@ function validateSpec(markdown) {
     else if (body === "") errors.push({ section: title, code: "EMPTY_SECTION" });
     else if (PLACEHOLDERS.has(body.toLowerCase().replace(/[.\s]+$/, "")))
       errors.push({ section: title, code: "PLACEHOLDER" });
+    else {
+      const line = findPendingLine(body);
+      if (line !== void 0) errors.push({ section: title, code: "PENDING_MARK", line });
+    }
   }
   const trigger = sections.get("Disparador");
   if (trigger && errors.every((e) => e.section !== "Disparador") && countListItems(trigger) > 1)
@@ -55,6 +63,7 @@ function validateSpec(markdown) {
 
 // ../core/src/plan.ts
 var CHECK_LINE = /^- \[( |x)\]\s+(\d+)\.\s+(.+?)\s*$/;
+var KIND_TAG = /^\((refactor|verificaci[oó]n)\)\s+/i;
 var FIELD_LINE = /^\s+-\s+(cubre|archivos):\s*(.*?)\s*$/;
 function splitList(value) {
   return value.split(",").map((item) => item.trim()).filter((item) => item !== "");
@@ -65,9 +74,11 @@ function parsePlan(markdown) {
   for (const line of markdown.split("\n")) {
     const check = CHECK_LINE.exec(line);
     if (check) {
+      const tag = KIND_TAG.exec(check[3]);
       current = {
         id: Number(check[2]),
-        title: check[3],
+        title: tag ? check[3].slice(tag[0].length) : check[3],
+        kind: tag ? tag[1].toLowerCase() === "refactor" ? "refactor" : "verify" : "behavior",
         done: check[1] === "x",
         covers: [],
         files: []
@@ -92,12 +103,37 @@ function markCheckDone(markdown, id) {
   lines[index] = line.replace("- [ ]", "- [x]");
   return lines.join("\n");
 }
+var FILES_LINE = /^(\s+-\s+archivos:\s*)(.*?)\s*$/;
+function checkAmendablePath(file) {
+  const path = file.replace(/^(\.\/)+/, "");
+  const parts = path.split("/");
+  if (path === "" || path.startsWith("/") || parts.includes("..") || parts[0] === ".tdd-sdd") {
+    throw new Error(`ruta no permitida en un check: ${file}`);
+  }
+  return path;
+}
+function amendFiles(markdown, id, change) {
+  const lines = markdown.split("\n");
+  const start = lines.findIndex((line) => CHECK_LINE.exec(line)?.[2] === String(id));
+  if (start === -1) throw new Error(`No existe el check ${id} en el plan`);
+  const add = change.add.map(checkAmendablePath);
+  const remove = new Set(change.remove.map((f) => f.replace(/^(\.\/)+/, "")));
+  for (let i = start + 1; i < lines.length && !CHECK_LINE.test(lines[i]); i++) {
+    const match = FILES_LINE.exec(lines[i]);
+    if (!match) continue;
+    const files = [.../* @__PURE__ */ new Set([...splitList(match[2]).filter((f) => !remove.has(f)), ...add])];
+    if (files.length === 0) throw new Error(`El check ${id} se quedar\xEDa sin archivos`);
+    lines[i] = match[1] + files.join(", ");
+    return lines.join("\n");
+  }
+  throw new Error(`El check ${id} no tiene l\xEDnea de archivos`);
+}
 
 // ../core/src/cycle.ts
 var TRANSITIONS = {
   spec_draft: { approve_spec: "spec_approved" },
   spec_approved: { approve_plan: "plan_approved" },
-  plan_approved: { tests_red: "red" },
+  plan_approved: { tests_red: "red", start_refactor: "refactor", verified_green: "green" },
   red: { tests_green: "green" },
   green: { request_review: "review" },
   review: { approve_check: "plan_approved", request_refactor: "refactor" },
@@ -136,6 +172,10 @@ function matchesGlob(path, pattern) {
 }
 
 // ../core/src/rules.ts
+var ROLE_FOR_COMMAND = {
+  approve_check: "revisor",
+  amend_files: "solucionador"
+};
 var TEST_FILE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 function isTestFile(file) {
   return TEST_FILE.test(file);
@@ -154,7 +194,17 @@ function evaluate(context, action) {
   if (action.type === "commit") return evaluateCommit(context);
   if (action.type === "push") return evaluatePush(context);
   if (action.type === "stop") return evaluateStop(context);
+  if (action.type === "role_command") return evaluateRoleCommand(action);
   return evaluateEdit(context, action);
+}
+function evaluateRoleCommand(action) {
+  const required = ROLE_FOR_COMMAND[action.command];
+  if (action.role === required) return { allow: true };
+  return {
+    allow: false,
+    rule: "ROLE_NOT_ALLOWED",
+    reason: `Este comando solo lo puede lanzar el agente ${required} (llam\xF3: ${action.role}). Si te bloquea, devu\xE9lvelo al orquestador.`
+  };
 }
 function evaluatePush(context) {
   if (context.remainingChecks !== 0) {
@@ -191,11 +241,17 @@ function evaluateCommit(context) {
     reason: "No se puede hacer commit: solo se commitea un check aprobado por el humano y a\xFAn no hay ninguna aprobaci\xF3n pendiente."
   };
 }
+var HARNESS_MANAGED = /* @__PURE__ */ new Set([
+  ".tdd-sdd/state.json",
+  ".tdd-sdd/overrides.log",
+  ".tdd-sdd/approvals.log",
+  ".tdd-sdd/amendments.log"
+]);
 function evaluateHarnessFile(context, file) {
   const path = normalizePath(file);
   if (!path.startsWith(".tdd-sdd/")) return void 0;
   const name = path.split("/").pop();
-  if (path === ".tdd-sdd/state.json" || path === ".tdd-sdd/overrides.log") {
+  if (HARNESS_MANAGED.has(path)) {
     return {
       allow: false,
       rule: "HARNESS_FILE_PROTECTED",
@@ -332,7 +388,9 @@ pendiente
 var PLAN_TEMPLATE = `# Plan: {{id}}
 
 <!-- Un check por comportamiento verificable. Cada check declara qu\xE9 elementos de la spec cubre
-     y los \xFAnicos archivos que puede tocar. Los tests apuntan a la entrada/salida del caso de uso. -->
+     y los \xFAnicos archivos que puede tocar. Los tests apuntan a la entrada/salida del caso de uso.
+     Etiquetas opcionales tras el n\xFAmero: (refactor) = limpieza sin cambiar comportamiento, parte de tests en verde;
+     (verificaci\xF3n) = solo a\xF1ade pruebas sobre c\xF3digo existente. Sin etiqueta = comportamiento nuevo (rojo \u2192 verde). -->
 
 - [ ] 1. T\xEDtulo del primer check
   - cubre: FP-1
@@ -374,6 +432,12 @@ function readOptional(file) {
 function writeText(file, content) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, content);
+}
+function appendLog(root2, name, line) {
+  const file = join(root2, HARNESS_DIR, name);
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
+`);
 }
 function logOverride(root2, rule) {
   const file = overridesLogPath(root2);
@@ -452,7 +516,7 @@ function approveSpec(root2, state) {
   const spec = readOptional(specPath(root2, state.useCase)) ?? "";
   const validation = validateSpec(spec);
   if (!validation.ok) {
-    const list = validation.errors.map((e) => `- ${e.section}: ${e.code}`).join("\n");
+    const list = validation.errors.map((e) => `- ${e.section}: ${e.code}${e.line ? ` ("${e.line}")` : ""}`).join("\n");
     return fail(`La spec no se puede aprobar todav\xEDa:
 ${list}`);
   }
@@ -490,7 +554,7 @@ function approveCheck(root2, state) {
   return ok(`Check ${current.id} aprobado y marcado. Haz el commit de este check ahora.`);
 }
 function approveFinal(root2, state) {
-  const context = buildContext(state, readOptional(planPath(root2, state.useCase)));
+  const context = buildContext(state, readOptional(planPath(root2, state.useCase)), loadConfig(root2));
   if (context.remainingChecks !== 0) {
     return fail(`A\xFAn quedan ${context.remainingChecks ?? "?"} checks sin completar.`);
   }
@@ -508,15 +572,30 @@ function override(root2, state, rule) {
   saveState(root2, { ...state, overrides: [.../* @__PURE__ */ new Set([...state.overrides, rule])] });
   return ok(`Override registrado para ${rule}.`);
 }
+function currentCheck(root2, state) {
+  const plan = readOptional(planPath(root2, state.useCase));
+  return plan ? parsePlan(plan).find((c) => !c.done) : void 0;
+}
 function recordTestRun(root2, exitCode) {
   const state = requireState(root2);
   if (isResult(state)) return state;
   const passed = exitCode === 0;
   switch (state.phase) {
-    case "plan_approved":
+    case "plan_approved": {
+      const kind = currentCheck(root2, state)?.kind ?? "behavior";
+      if (kind === "refactor") {
+        if (!passed) return fail("El refactor parte de tests en verde: arr\xE9glalos antes de refactorizar.");
+        step(root2, state, "start_refactor");
+        return ok("REFACTOR habilitado: los tests actuales son la red y quedan congelados. Refactoriza sin cambiar comportamiento y termina con tdd-sdd refactor-done.");
+      }
+      if (passed && kind === "verify") {
+        step(root2, state, "verified_green");
+        return ok("VERDE: las pruebas de verificaci\xF3n pasan sin c\xF3digo nuevo. Presenta la parada de revisi\xF3n (tdd-sdd review).");
+      }
       if (passed) return fail("Los tests pasan sin implementaci\xF3n: el test nuevo no est\xE1 demostrando nada. Escribe un test que falle.");
       step(root2, state, "tests_red");
       return ok("ROJO registrado. Confirma que falla por comportamiento ausente y no por un error de configuraci\xF3n o de ejecuci\xF3n; luego implementa lo m\xEDnimo.");
+    }
     case "red":
       if (!passed) return ok("Sigue en rojo.");
       step(root2, state, "tests_green");
@@ -557,6 +636,54 @@ function status(root2) {
     ...checks.map((c) => `[${c.done ? "x" : " "}] ${c.id}. ${c.title}  (cubre: ${c.covers.join(", ")})`)
   ];
   return lines.join("\n");
+}
+var GRANT_TTL_MS = 6e4;
+function takeGrant(root2, state, action) {
+  const grant = state.grant;
+  const age = grant ? Date.now() - Date.parse(grant.at) : Infinity;
+  const { grant: _spent, ...rest2 } = state;
+  if (grant) saveState(root2, rest2);
+  if (!grant || grant.action !== action || !(age >= 0 && age <= GRANT_TTL_MS)) {
+    return fail("Este comando solo se acepta cuando lo lanza el agente que corresponde a trav\xE9s del hook (no hay permiso vigente).");
+  }
+  return { state: rest2, agent: grant.agent };
+}
+function approveCheckAsReviewer(root2, runTests2) {
+  const state = requireState(root2);
+  if (isResult(state)) return state;
+  const taken = takeGrant(root2, state, "approve_check");
+  if ("message" in taken) return taken;
+  if (state.phase !== "review") return fail(`No hay un check en revisi\xF3n (fase ${state.phase}).`);
+  const current = currentCheck(root2, taken.state);
+  if (!current) return fail("No quedan checks pendientes.");
+  const exitCode = runTests2();
+  appendLog(root2, "approvals.log", `check ${current.id} ${taken.agent} tests=${exitCode === 0 ? "pass" : "fail"}`);
+  if (exitCode !== 0) {
+    return fail(`Check ${current.id} NO aprobado: los tests fallan. Vuelve al desarrollador; esto se le muestra al humano.`);
+  }
+  return approveCheck(root2, taken.state);
+}
+function amendCheckFiles(root2, id, change) {
+  const state = requireState(root2);
+  if (isResult(state)) return state;
+  const taken = takeGrant(root2, state, "amend_files");
+  if ("message" in taken) return taken;
+  if (!["plan_approved", "red", "green", "review", "refactor"].includes(state.phase)) {
+    return fail(`El plan a\xFAn no est\xE1 aprobado (fase ${state.phase}).`);
+  }
+  const current = currentCheck(root2, taken.state);
+  if (!current || current.id !== id) {
+    return fail(`Solo se pueden ajustar los archivos del check en curso (${current?.id ?? "ninguno"}), no el ${id}.`);
+  }
+  const file = planPath(root2, state.useCase);
+  try {
+    writeText(file, amendFiles(readOptional(file) ?? "", id, change));
+  } catch (error) {
+    return fail(error.message);
+  }
+  const summary = [...change.add.map((f) => `+${f}`), ...change.remove.map((f) => `-${f}`)].join(" ");
+  appendLog(root2, "amendments.log", `check ${id} ${taken.agent} ${summary}`);
+  return ok(`Archivos del check ${id} actualizados (${summary}). Si hay que a\xF1adir o quitar checks, cambiar lo que cubren o la spec, pregunta al humano.`);
 }
 
 // src/hook.ts
@@ -672,7 +799,7 @@ function extractWriteTargets(command2) {
 // src/hook.ts
 var ALLOW = { exitCode: 0, stdout: "", stderr: "" };
 var EDIT_TOOLS = /* @__PURE__ */ new Set(["edit", "write", "multiedit", "notebookedit"]);
-var HARNESS_WRITE = /\.tdd-sdd\/(state\.json|overrides\.log)/;
+var HARNESS_WRITE = /\.tdd-sdd\/(state\.json|overrides\.log|approvals\.log|amendments\.log)/;
 var WRITE_OPERATOR = />|\btee\b|\bsed\s+-i|\bmv\b|\brm\b|\bcp\b|\bdd\b|\btruncate\b/;
 function deny(rule, reason) {
   return { exitCode: 2, stdout: "", stderr: `[tdd-sdd] ${reason} (regla: ${rule})` };
@@ -680,6 +807,25 @@ function deny(rule, reason) {
 function projectRelative(file, root2, cwd2) {
   const rel = relative(root2, isAbsolute(file) ? file : resolve2(cwd2, file));
   return rel.startsWith("..") || isAbsolute(rel) ? void 0 : rel;
+}
+var ROLES = /* @__PURE__ */ new Set(["redactor", "desarrollador", "revisor", "solucionador"]);
+var ROLE_COMMANDS = [
+  [/^(?:node\s+\S*)?tdd-sdd(?:\.mjs)?\s+approve-check\b/, "approve_check"],
+  [/^(?:node\s+\S*)?tdd-sdd(?:\.mjs)?\s+amend-files\b/, "amend_files"]
+];
+function roleOf(input) {
+  if (!input.agent_id) return "main";
+  const type = (input.agent_type ?? "").split(":").pop() ?? "";
+  return type === "" ? "subagent" : type;
+}
+function roleCommandsIn(command2, role) {
+  const actions = [];
+  for (const segment of command2.split(/[;&|\n]+/)) {
+    for (const [pattern, name] of ROLE_COMMANDS) {
+      if (pattern.test(segment.trim())) actions.push({ type: "role_command", command: name, role });
+    }
+  }
+  return actions;
 }
 function actionsFor(input, root2) {
   const cwd2 = input.cwd ?? root2;
@@ -696,7 +842,7 @@ function actionsFor(input, root2) {
   if (HARNESS_WRITE.test(command2) && WRITE_OPERATOR.test(command2)) {
     return deny("HARNESS_FILE_PROTECTED", "Los archivos de estado del harness no se modifican desde la shell.");
   }
-  const actions = [];
+  const actions = roleCommandsIn(command2, roleOf(input));
   for (const target of extractWriteTargets(command2)) {
     const file = projectRelative(target, root2, cwd2);
     if (file !== void 0) actions.push({ type: "edit", file });
@@ -708,6 +854,9 @@ function actionsFor(input, root2) {
 function isHookResult(value) {
   return !Array.isArray(value);
 }
+function grantRoleCommand(root2, state, action) {
+  saveState(root2, { ...state, grant: { action: action.command, agent: action.role, at: (/* @__PURE__ */ new Date()).toISOString() } });
+}
 function decide(input, root2, action) {
   const state = loadState(root2);
   if (!state) return ALLOW;
@@ -715,9 +864,11 @@ function decide(input, root2, action) {
   const decision = evaluate(context, action);
   if (decision.allow) {
     if (action.type === "commit" && state.pendingCommit) saveState(root2, { ...state, pendingCommit: false });
+    if (action.type === "role_command") grantRoleCommand(root2, state, action);
     return ALLOW;
   }
   if (state.overrides.includes(decision.rule)) {
+    if (action.type === "role_command") grantRoleCommand(root2, state, action);
     return { exitCode: 0, stdout: "", stderr: `[tdd-sdd] override activo para ${decision.rule}` };
   }
   return deny(decision.rule, decision.reason);
@@ -737,8 +888,25 @@ function sessionStart(root2, cliPath) {
   return { exitCode: 0, stdout: `${intro}
 ${body}`, stderr: "" };
 }
+var ROLE_REMINDERS = {
+  redactor: "Redactas spec.md y plan.md con lo que el orquestador recogi\xF3 del humano; no inventes requisitos y devuelve lo pendiente.",
+  desarrollador: "Un check a la vez (rojo \u2192 verde \u2192 tdd-sdd review). Si el harness te bloquea o no ves c\xF3mo seguir, devuelve BLOQUEADO: <regla y s\xEDntoma> al orquestador; no busques rodeos.",
+  revisor: "No editas c\xF3digo. Ejecuta tdd-sdd approve-check: corre los tests y solo aprueba si pasan.",
+  solucionador: "Diagnostica el bloqueo. Solo puedes ajustar archivos del check en curso con tdd-sdd amend-files <id> --add a,b --remove c; devuelve RESUELTO: o ESCALAR: (spec, config, checks, seguridad o datos van al humano)."
+};
+function subagentStart(input, root2, cliPath) {
+  const role = roleOf(input);
+  if (!ROLES.has(role)) return ALLOW;
+  const cli = cliPath ? `node ${cliPath}` : "tdd-sdd";
+  const body = loadState(root2) ? status(root2) : "El harness no est\xE1 iniciado en este proyecto.";
+  const additionalContext = `[tdd-sdd] Rol: ${role}. Comando CLI: ${cli} (\xFAsalo donde la documentaci\xF3n dice "tdd-sdd"). ${ROLE_REMINDERS[role]}
+${body}`;
+  const output = { hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext } };
+  return { exitCode: 0, stdout: JSON.stringify(output), stderr: "" };
+}
 function handleHook(input, root2, options = {}) {
   if (input.hook_event_name === "SessionStart") return sessionStart(root2, options.cliPath);
+  if (input.hook_event_name === "SubagentStart") return subagentStart(input, root2, options.cliPath);
   if (!loadState(root2)) return ALLOW;
   switch (input.hook_event_name) {
     case "PreToolUse": {
@@ -818,7 +986,20 @@ switch (command) {
     print(finishRefactor(root, code));
     break;
   }
+  case "approve-check":
+    print(approveCheckAsReviewer(root, () => runTests(root)));
+    break;
+  case "amend-files": {
+    const id = Number(rest[0]);
+    const list = (flag) => (rest.includes(flag) ? rest[rest.indexOf(flag) + 1] ?? "" : "").split(",").map((f) => f.trim()).filter(Boolean);
+    if (!Number.isInteger(id)) {
+      process.stderr.write("Uso: tdd-sdd amend-files <id-check> [--add a,b] [--remove c]\n");
+      process.exit(1);
+    }
+    print(amendCheckFiles(root, id, { add: list("--add"), remove: list("--remove") }));
+    break;
+  }
   default:
-    process.stderr.write("Uso: tdd-sdd init <id> | test | review | refactor-done | status | hook\n");
+    process.stderr.write("Uso: tdd-sdd init <id> | test | review | refactor-done | approve-check | amend-files | status | hook\n");
     process.exit(1);
 }

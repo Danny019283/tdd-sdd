@@ -11,7 +11,7 @@ Inicia o retoma el flujo del harness `tdd-sdd`. Sigue estos pasos en orden y **n
    Escribe las respuestas en `CLAUDE.md` y `AGENTS.md` (sección `## Arquitectura`) y el comando en `.tdd-sdd/config.json` como `{ "testCommand": "..." }`.
 3. Si no hay caso de uso activo: pregunta el nombre del caso de uso (verbo + objeto), conviértelo a kebab-case y ejecuta `tdd-sdd init <id>`.
    Esto crea `.tdd-sdd/use-cases/<id>/spec.md` con la plantilla de caso de uso.
-4. Rellena la spec **entrevistando al humano sección por sección** siguiendo el skill `spec-interview`.
-5. Cuando la spec esté completa, dile al humano que revise y ejecute `/approve spec`. **Tú no puedes aprobar.**
+4. Rellena la spec **entrevistando al humano sección por sección** siguiendo el skill `spec-interview`; pasa las respuestas al agente `redactor` para que las escriba en `spec.md`.
+5. Cuando la spec esté completa (sin marcas `pendiente`), dile al humano que revise y ejecute `/approve spec`. **Tú no puedes aprobar.**
 
 Nunca inventes requisitos que el humano no haya dado. Lo que no esté definido va marcado como pendiente y bloquea la aprobación.

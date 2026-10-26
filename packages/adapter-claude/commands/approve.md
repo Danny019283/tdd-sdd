@@ -5,4 +5,6 @@ argument-hint: spec | plan | check | final
 
 Este comando lo procesa el harness antes de llegar al modelo. Si lo estás leyendo como instrucción, la aprobación ya se aplicó (o se rechazó con un motivo en el mensaje `[tdd-sdd]`).
 
+`/approve check` es opcional: el agente `revisor` ya aprueba cada check cuando pasan los tests. Úsalo para aprobar a mano.
+
 Reporta el resultado al humano y continúa según la nueva fase (skill `tdd-cycle`). Si el mensaje dice `NO APLICADO`, explica qué falta y corrígelo con el humano.
